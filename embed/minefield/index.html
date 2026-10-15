@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Minefield | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<style>
+  body{overflow:auto;touch-action:manipulation;background:radial-gradient(90% 60% at 50% 0%,#14204f 0%,#090a22 60%,#070818 100%)}
+  .wrap{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:52px 10px 16px}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px}
+  .stat{min-width:70px;padding:5px 10px;text-align:center;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px}
+  .stat small{display:block;font-size:11px;color:var(--muted)}
+  .stat b{font-family:var(--display);font-size:20px}
+  .face{font-family:var(--display);font-weight:700}
+  .board{display:grid;gap:2px;padding:8px;background:rgba(16,18,56,.85);border:1px solid rgba(120,130,255,.25);border-radius:12px;box-shadow:0 0 40px rgba(60,120,255,.18);user-select:none}
+  .c{appearance:none;border:0;padding:0;width:var(--cs);height:var(--cs);border-radius:4px;font-family:var(--display);font-weight:700;font-size:calc(var(--cs)*.58);
+    display:grid;place-items:center;cursor:pointer;color:#fff;background:linear-gradient(160deg,#3a3f8f,#262a66);box-shadow:inset 0 1px 0 rgba(255,255,255,.15),inset 0 -2px 0 rgba(0,0,0,.25)}
+  .c:hover{filter:brightness(1.25)}
+  .c:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+  .c.open{background:rgba(255,255,255,.04);box-shadow:none;cursor:default}
+  .c.open:hover{filter:none}
+  .c.mine{background:#4a1030}
+  .c.boom{background:#ff4b6e;box-shadow:0 0 16px #ff4b6e}
+  .c.wrong{background:#3a2a55}
+  .n1{color:#45f0ff}.n2{color:#3dffa8}.n3{color:#ff4fd8}.n4{color:#a65bff}.n5{color:#ff9a3d}.n6{color:#2fb8ff}.n7{color:#ffd84a}.n8{color:#fff}
+  .c svg{width:62%;height:62%}
+  .hint{font-size:12px;color:var(--muted);text-align:center;max-width:44ch;margin:0}
+  .mode[aria-pressed="true"]{color:#06071a;background:linear-gradient(95deg,#6fd6ff,var(--purple));border-color:transparent}
+</style>
+</head>
+<body data-game="minefield" style="--game-bg:#090a22">
+<div class="wrap">
+  <div class="bar k-ui" role="group" aria-label="Difficulty">
+    <button type="button" class="k-chip" data-d="easy">Easy</button>
+    <button type="button" class="k-chip" data-d="medium">Medium</button>
+    <button type="button" class="k-chip" data-d="hard">Hard</button>
+  </div>
+  <div class="bar">
+    <div class="stat"><small>Mines</small><b id="left">10</b></div>
+    <button type="button" class="k-btn small k-ui face" id="restart">New game</button>
+    <div class="stat"><small>Time</small><b id="time">0</b></div>
+    <button type="button" class="k-chip mode k-ui" id="flagMode" aria-pressed="false">Flag mode</button>
+  </div>
+  <div class="board" id="board"></div>
+  <p class="hint">Click to reveal, right-click (or long-press, or turn on Flag mode) to place a flag. Click a number with all its flags placed to clear around it. Your first click is always safe.</p>
+</div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit;
+  K.pausable = false; K.state = "play"; K.updateToolbar();
+  var D = { easy: { w: 9, h: 9, m: 10 }, medium: { w: 16, h: 16, m: 40 }, hard: { w: 30, h: 16, m: 99 } };
+  var diff = K.store.get("diff", "easy");
+  var boardEl = document.getElementById("board"), leftEl = document.getElementById("left"), timeEl = document.getElementById("time"), flagBtn = document.getElementById("flagMode");
+  var cells, W, H, M, started, done, flags, opened, timer, t0, flagMode = false, els = [];
+  var FLAG = '<svg viewBox="0 0 24 24"><path d="M6 21V4" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/><path d="M7 4h11l-3 4 3 4H7z" fill="#ff4fd8"/></svg>';
+  var MINE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="#fff"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M5 19l3-3M16 8l3-3" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="10" cy="10" r="1.6" fill="#1a1036"/></svg>';
+
+  function setup() {
+    var d = D[diff]; W = d.w; H = d.h; M = d.m;
+    cells = []; for (var i = 0; i < W * H; i++) cells.push({ mine: false, n: 0, open: false, flag: false });
+    started = false; done = false; flags = 0; opened = 0; clearInterval(timer); timeEl.textContent = "0";
+    var cs = Math.floor(Math.min((window.innerWidth - 40) / W - 2, (window.innerHeight - 230) / H - 2, 38));
+    cs = Math.max(cs, W > 16 ? 22 : 26);
+    document.documentElement.style.setProperty("--cs", cs + "px");
+    boardEl.style.gridTemplateColumns = "repeat(" + W + ", var(--cs))";
+    boardEl.innerHTML = ""; els = [];
+    for (i = 0; i < W * H; i++) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "c"; b.dataset.i = i;
+      b.setAttribute("aria-label", "Hidden square " + (i % W + 1) + ", " + (Math.floor(i / W) + 1));
+      boardEl.appendChild(b); els.push(b);
+    }
+    updateLeft();
+    document.querySelectorAll("[data-d]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.d === diff)); });
+  }
+  function nb(i) { var x = i % W, y = Math.floor(i / W), r = []; for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; var nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H) r.push(ny * W + nx); } return r; }
+  function place(safe) {
+    var banned = {}; banned[safe] = 1; nb(safe).forEach(function (j) { banned[j] = 1; });
+    var spots = []; for (var i = 0; i < W * H; i++) if (!banned[i]) spots.push(i);
+    K.shuffle(spots).slice(0, M).forEach(function (j) { cells[j].mine = true; });
+    for (i = 0; i < W * H; i++) cells[i].n = nb(i).filter(function (j) { return cells[j].mine; }).length;
+    started = true; t0 = Date.now();
+    timer = setInterval(function () { timeEl.textContent = Math.floor((Date.now() - t0) / 1000); }, 250);
+  }
+  function reveal(i) {
+    if (done) return; var c = cells[i]; if (c.flag) return;
+    if (!started) place(i);
+    if (c.open) { chord(i); return; }
+    if (c.mine) { lose(i); return; }
+    var stack = [i], n = 0;
+    while (stack.length) {
+      var j = stack.pop(), cj = cells[j]; if (cj.open || cj.flag) continue;
+      cj.open = true; opened++; n++; draw(j);
+      if (cj.n === 0) nb(j).forEach(function (k) { if (!cells[k].open) stack.push(k); });
+    }
+    K.tone(500 + Math.min(n, 30) * 12, 0.05, { type: "triangle", vol: 0.1 });
+    if (opened === W * H - M) win();
+  }
+  function chord(i) {
+    var c = cells[i]; if (!c.n) return;
+    var around = nb(i), f = around.filter(function (j) { return cells[j].flag; }).length;
+    if (f !== c.n) { K.sfx("error"); return; }
+    around.forEach(function (j) { if (!cells[j].open && !cells[j].flag) reveal(j); });
+  }
+  function toggleFlag(i) {
+    if (done) return; var c = cells[i]; if (c.open) return;
+    c.flag = !c.flag; flags += c.flag ? 1 : -1; draw(i); updateLeft(); K.sfx(c.flag ? "click" : "select");
+  }
+  function updateLeft() { leftEl.textContent = M - flags; }
+  function draw(i) {
+    var c = cells[i], b = els[i];
+    b.className = "c" + (c.open ? " open" : "");
+    if (c.open) { b.innerHTML = c.n ? '<span class="n' + c.n + '">' + c.n + "</span>" : ""; b.setAttribute("aria-label", c.n ? c.n + " mines nearby" : "Empty"); }
+    else { b.innerHTML = c.flag ? FLAG : ""; b.setAttribute("aria-label", c.flag ? "Flagged" : "Hidden"); }
+  }
+  function lose(i) {
+    done = true; clearInterval(timer); K.sfx("explode");
+    cells.forEach(function (c, j) {
+      if (c.mine && !c.flag) { els[j].className = "c open mine"; els[j].innerHTML = MINE; }
+      else if (!c.mine && c.flag) { els[j].className = "c wrong"; els[j].innerHTML = FLAG; els[j].style.opacity = .5; }
+    });
+    els[i].className = "c open boom"; els[i].innerHTML = MINE;
+    setTimeout(function () { K.over({ title: "Boom!", score: null, extra: '<p class="k-body">You cleared ' + opened + " of " + (W * H - M) + " safe squares.</p>", button: "Try again", onRestart: function () { setup(); } }); }, 900);
+  }
+  function win() {
+    done = true; clearInterval(timer); K.sfx("win");
+    var secs = Math.max(1, Math.round((Date.now() - t0) / 1000));
+    cells.forEach(function (c, j) { if (c.mine && !c.flag) { c.flag = true; draw(j); } }); flags = M; updateLeft();
+    var key = "best_" + diff, b = K.store.get(key, null), isNew = b == null || secs < b; if (isNew) K.store.set(key, secs);
+    setTimeout(function () {
+      K.screen({ title: "Field cleared!", html: '<div class="k-score-label">Time</div><div class="k-score">' + secs + 's</div>' + (isNew ? '<div class="k-new">New best on ' + diff + "!</div>" : '<div class="k-best">Best on ' + diff + ": " + b + "s</div>") + '<div style="height:16px"></div>', button: "Play again", onStart: function () { setup(); }, credit: false });
+    }, 500);
+  }
+
+  // input: click, right-click, long-press
+  var pressT = null, longFired = false;
+  boardEl.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  boardEl.addEventListener("pointerdown", function (e) {
+    var b = e.target.closest(".c"); if (!b) return; var i = +b.dataset.i;
+    longFired = false;
+    if (e.button === 2) { toggleFlag(i); longFired = true; return; }
+    if (e.pointerType !== "mouse") pressT = setTimeout(function () { longFired = true; toggleFlag(i); if (navigator.vibrate) navigator.vibrate(20); }, 380);
+  });
+  function cancel() { clearTimeout(pressT); pressT = null; }
+  boardEl.addEventListener("pointerup", cancel); boardEl.addEventListener("pointerleave", cancel); boardEl.addEventListener("pointercancel", cancel);
+  boardEl.addEventListener("click", function (e) {
+    var b = e.target.closest(".c"); if (!b) return; if (longFired) { longFired = false; return; }
+    var i = +b.dataset.i;
+    if (flagMode && !cells[i].open) toggleFlag(i); else reveal(i);
+  });
+  boardEl.addEventListener("keydown", function (e) { if (e.code === "KeyF") { var b = e.target.closest(".c"); if (b) toggleFlag(+b.dataset.i); } });
+  flagBtn.addEventListener("click", function () { flagMode = !flagMode; flagBtn.setAttribute("aria-pressed", String(flagMode)); K.sfx("click"); });
+  document.getElementById("restart").addEventListener("click", function () { K.sfx("select"); setup(); });
+  document.querySelectorAll("[data-d]").forEach(function (b) { b.addEventListener("click", function () { diff = b.dataset.d; K.store.set("diff", diff); K.sfx("click"); setup(); }); });
+
+  setup();
+  if (K.thumb) {
+    diff = "medium"; setup(); place(8 * 16 + 8); reveal(8 * 16 + 8);
+    var k = 0; cells.forEach(function (c, j) { if (c.mine && k < 9 && cells.some(function () { return true; }) && nb(j).some(function (q) { return cells[q].open; })) { c.flag = true; draw(j); k++; } });
+    clearInterval(timer); timeEl.textContent = "42";
+  }
+})();
+</script>
+</body>
+</html>

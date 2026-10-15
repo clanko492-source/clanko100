@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Blocklands | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<style>
+  .craft{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:35;width:min(360px,92vw);padding:18px;background:var(--panel);border:1px solid var(--line);
+    clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px);box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .craft h2{margin:0 0 12px;font-family:var(--display);font-size:22px}
+  .craft ul{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:8px}
+  .craft li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;font-size:13px}
+  .craft li span{color:var(--muted)}
+  .craft li b{color:var(--ink);font-weight:600}
+  .craft button[disabled]{opacity:.35;cursor:not-allowed;filter:none}
+</style>
+</head>
+<body data-game="blocklands" style="--game-bg:#0d1030">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var T = 24, WW = 240, WH = 90;
+  var ctx = K.canvas(768, 432, { fill: { minW: 540, maxW: 1100 } });
+  var fx = new K.Particles();
+
+  /* ---------- blocks ---------- */
+  var AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, LOG = 4, LEAVES = 5, PLANKS = 6, COAL = 7, IRON = 8, GOLD = 9, DIAMOND = 10, BEDROCK = 11, SAND = 12, GLASS = 13, TORCH = 14, FLOWER = 15, BRICK = 16;
+  var B = [];
+  function def(id, name, hard, base, alt, opts) { B[id] = Object.assign({ name: name, hard: hard, base: base, alt: alt, solid: true, drop: id }, opts || {}); }
+  def(AIR, "Air", 0, null, null, { solid: false });
+  def(GRASS, "Grass", 0.45, "#6b4a2e", "#5a3d25", { drop: DIRT, top: "#3dffa8" });
+  def(DIRT, "Dirt", 0.4, "#6b4a2e", "#5a3d25");
+  def(STONE, "Stone", 1.0, "#5d6280", "#4c5070");
+  def(LOG, "Log", 0.85, "#7a5232", "#5f3e24");
+  def(LEAVES, "Leaves", 0.15, "#1fbf7a", "#169a62", { solid: false, drop: AIR });
+  def(PLANKS, "Planks", 0.65, "#b07a45", "#93633a");
+  def(COAL, "Coal ore", 1.25, "#5d6280", "#4c5070", { ore: "#15151f" });
+  def(IRON, "Iron ore", 1.5, "#5d6280", "#4c5070", { ore: "#e0b48c" });
+  def(GOLD, "Gold ore", 1.7, "#5d6280", "#4c5070", { ore: C.yellow });
+  def(DIAMOND, "Diamond", 2.1, "#5d6280", "#4c5070", { ore: "#45f0ff" });
+  def(BEDROCK, "Bedrock", Infinity, "#22243a", "#15172a");
+  def(SAND, "Sand", 0.35, "#e3cf8c", "#d1bb75");
+  def(GLASS, "Glass", 0.3, "rgba(170,220,255,.18)", "rgba(170,220,255,.1)");
+  def(TORCH, "Torch", 0.05, null, null, { solid: false });
+  def(FLOWER, "Flower", 0.05, null, null, { solid: false, drop: AIR });
+  def(BRICK, "Bricks", 1.1, "#a8475a", "#8e3a4b");
+
+  // pre-render block sprites
+  var sprites = [];
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function makeSprite(id) {
+    var c = document.createElement("canvas"); c.width = c.height = T; var g = c.getContext("2d"), b = B[id], r = rng(id * 977 + 13);
+    if (id === TORCH) {
+      g.fillStyle = "#8a5a33"; g.fillRect(10, 9, 4, 13);
+      g.fillStyle = "#ffd84a"; g.fillRect(9, 4, 6, 6); g.fillStyle = "#fff4b0"; g.fillRect(10.5, 5, 3, 3);
+      return c;
+    }
+    if (id === FLOWER) {
+      g.fillStyle = "#1fbf7a"; g.fillRect(11, 12, 2, 12); g.fillRect(8, 17, 3, 2);
+      g.fillStyle = "#ff4fd8"; g.fillRect(8, 6, 8, 3); g.fillRect(10, 4, 4, 7); g.fillStyle = "#ffd84a"; g.fillRect(11, 6, 2, 2);
+      return c;
+    }
+    g.fillStyle = b.base; g.fillRect(0, 0, T, T);
+    for (var i = 0; i < 26; i++) { g.fillStyle = r() < 0.5 ? b.alt : "rgba(255,255,255,.06)"; g.fillRect(Math.floor(r() * 8) * 3, Math.floor(r() * 8) * 3, 3, 3); }
+    if (id === GRASS) { g.fillStyle = b.top; g.fillRect(0, 0, T, 6); for (var k = 0; k < 8; k++) g.fillRect(k * 3, 6, 3, Math.floor(r() * 4)); g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, 0, T, 2); }
+    if (id === LOG) { g.fillStyle = "#4a3019"; for (var l = 0; l < 4; l++) g.fillRect(3 + l * 6, 0, 2, T); }
+    if (id === PLANKS) { g.fillStyle = "#6e4a29"; g.fillRect(0, 7, T, 2); g.fillRect(0, 15, T, 2); g.fillRect(8, 0, 2, 7); g.fillRect(16, 9, 2, 6); g.fillRect(5, 17, 2, 7); }
+    if (id === BRICK) { g.fillStyle = "#e7d6dd"; g.globalAlpha = 0.35; g.fillRect(0, 7, T, 2); g.fillRect(0, 15, T, 2); g.fillRect(0, 23, T, 1); g.fillRect(11, 0, 2, 7); g.fillRect(5, 9, 2, 6); g.fillRect(17, 9, 2, 6); g.fillRect(11, 17, 2, 6); g.globalAlpha = 1; }
+    if (id === LEAVES) { g.fillStyle = "rgba(0,0,0,.18)"; for (var q = 0; q < 10; q++) g.fillRect(Math.floor(r() * 8) * 3, Math.floor(r() * 8) * 3, 3, 3); }
+    if (id === GLASS) { g.strokeStyle = "rgba(200,235,255,.7)"; g.lineWidth = 2; g.strokeRect(1, 1, T - 2, T - 2); g.fillStyle = "rgba(255,255,255,.5)"; g.fillRect(5, 5, 2, 6); g.fillRect(8, 5, 2, 3); }
+    if (b.ore) { for (var o = 0; o < 6; o++) { g.fillStyle = b.ore; var ox = 3 + Math.floor(r() * 6) * 3, oy = 3 + Math.floor(r() * 6) * 3; g.fillRect(ox, oy, 4, 3); g.fillStyle = "rgba(255,255,255,.4)"; g.fillRect(ox, oy, 2, 1); } }
+    g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(0, T - 2, T, 2); g.fillRect(T - 2, 0, 2, T);
+    return c;
+  }
+  for (var id = 1; id < B.length; id++) sprites[id] = makeSprite(id);
+
+  /* ---------- world ---------- */
+  var tiles, seed, top, surf, player, inv, hotbar, sel, clock, mineT, mineAt, mode, dirty = false, t = 0, saveT = 0, achieved;
+  function idx(x, y) { return y * WW + x; }
+  function get(x, y) { if (x < 0 || x >= WW || y >= WH) return BEDROCK; if (y < 0) return AIR; return tiles[idx(x, y)]; }
+  function setT(x, y, v) { if (x < 0 || x >= WW || y < 0 || y >= WH) return; tiles[idx(x, y)] = v; recalcTop(x); dirty = true; }
+  function isSolid(v) { return B[v].solid; }
+  function recalcTop(x) { var y = 0; while (y < WH && (get(x, y) === AIR || get(x, y) === TORCH || get(x, y) === FLOWER || get(x, y) === GLASS)) y++; top[x] = y; }
+
+  function generate(s) {
+    seed = s; var r = rng(s);
+    tiles = new Uint8Array(WW * WH); top = new Int16Array(WW);
+    var grid1 = [], grid2 = [], grid3 = []; for (var i = 0; i < 64; i++) { grid1.push(r()); grid2.push(r()); grid3.push(r()); }
+    function vn(grid, x) { var i = Math.floor(x), f = x - i, a = grid[((i % 64) + 64) % 64], b = grid[(((i + 1) % 64) + 64) % 64]; f = f * f * (3 - 2 * f); return a + (b - a) * f; }
+    var cave = []; for (var c = 0; c < 4096; c++) cave.push(r());
+    function vn2(x, y) {
+      var xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+      function h(a, b) { return cave[((a * 73 + b * 151) % 4096 + 4096) % 4096]; }
+      xf = xf * xf * (3 - 2 * xf); yf = yf * yf * (3 - 2 * yf);
+      var top1 = h(xi, yi) + (h(xi + 1, yi) - h(xi, yi)) * xf, bot = h(xi, yi + 1) + (h(xi + 1, yi + 1) - h(xi, yi + 1)) * xf;
+      return top1 + (bot - top1) * yf;
+    }
+    var heights = []; surf = heights;
+    for (var x = 0; x < WW; x++) {
+      var hgt = 30 + (vn(grid1, x / 36) - 0.5) * 22 + (vn(grid2, x / 11) - 0.5) * 7 + (vn(grid3, x / 4.5) - 0.5) * 2;
+      heights.push(Math.round(hgt));
+    }
+    for (x = 0; x < WW; x++) {
+      var s0 = heights[x], dirtDepth = 3 + Math.floor(r() * 2), sandy = s0 >= 36;
+      for (var y = 0; y < WH; y++) {
+        var v = AIR;
+        if (y === s0) v = sandy ? SAND : GRASS;
+        else if (y > s0 && y <= s0 + dirtDepth) v = sandy ? SAND : DIRT;
+        else if (y > s0) v = STONE;
+        if (y >= WH - 1 || (y === WH - 2 && r() < 0.5)) v = BEDROCK;
+        if (v === STONE || v === DIRT) {
+          var n = vn2(x / 9, y / 6) * 0.6 + vn2(x / 4 + 40, y / 4 + 40) * 0.4;
+          if (y > s0 + 6 && y < WH - 3 && n > 0.66) v = AIR;
+        }
+        tiles[idx(x, y)] = v;
+      }
+    }
+    function blob(x, y, type, n) { for (var i = 0; i < n; i++) { var xx = x + Math.floor(r() * 3) - 1, yy = y + Math.floor(r() * 3) - 1; if (get(xx, yy) === STONE) tiles[idx(xx, yy)] = type; x = xx; y = yy; } }
+    for (x = 0; x < WW; x++) for (y = 0; y < WH; y++) if (tiles[idx(x, y)] === STONE) {
+      var d = y - heights[x], q = r();
+      if (q < 0.010 && d > 3) blob(x, y, COAL, 5);
+      else if (q < 0.016 && d > 14) blob(x, y, IRON, 4);
+      else if (q < 0.019 && y > 58) blob(x, y, GOLD, 3);
+      else if (q < 0.0215 && y > 72) blob(x, y, DIAMOND, 3);
+    }
+    // trees + flowers
+    for (x = 4; x < WW - 4; x += 4 + Math.floor(r() * 7)) {
+      var sy = heights[x];
+      if (tiles[idx(x, sy)] !== GRASS) continue;
+      var th = 4 + Math.floor(r() * 3);
+      for (var k = 1; k <= th; k++) tiles[idx(x, sy - k)] = LOG;
+      var cy = sy - th;
+      for (var dy = -2; dy <= 1; dy++) for (var dx = -2; dx <= 2; dx++) {
+        if (Math.abs(dx) + Math.abs(dy) > 3 || (dx === 0 && dy >= 0)) continue;
+        if (get(x + dx, cy + dy) === AIR) tiles[idx(x + dx, cy + dy)] = LEAVES;
+      }
+      if (get(x, cy - 1) === AIR) tiles[idx(x, cy - 1)] = LEAVES;
+    }
+    for (x = 1; x < WW - 1; x++) { var fy = heights[x]; if (tiles[idx(x, fy)] === GRASS && tiles[idx(x, fy - 1)] === AIR && r() < 0.09) tiles[idx(x, fy - 1)] = FLOWER; }
+    for (x = 0; x < WW; x++) recalcTop(x);
+    var px = Math.floor(WW / 2); while (get(px, heights[px] - 1) !== AIR && px < WW - 2) px++;
+    player = newPlayer(px, heights[px] - 2);
+    inv = {}; hotbar = []; sel = 0; clock = 0.3; achieved = {};
+    give(PLANKS, 16); give(TORCH, 8);
+  }
+  function newPlayer(tx, ty) { return { x: tx * T + 3, y: ty * T - 20, w: 18, h: 42, vx: 0, vy: 0, ground: false, face: 1, walk: 0 }; }
+  function give(type, n) {
+    if (!type) return;
+    inv[type] = (inv[type] || 0) + n;
+    if (hotbar.indexOf(type) < 0 && hotbar.length < 9) hotbar.push(type);
+  }
+  function take(type, n) {
+    inv[type] = (inv[type] || 0) - n;
+    if (inv[type] <= 0) { delete inv[type]; var i = hotbar.indexOf(type); if (i >= 0) { hotbar.splice(i, 1); if (sel >= hotbar.length) sel = Math.max(0, hotbar.length - 1); } }
+    // refill hotbar from inventory
+    Object.keys(inv).forEach(function (k) { k = +k; if (hotbar.length < 9 && hotbar.indexOf(k) < 0) hotbar.push(k); });
+  }
+
+  /* ---------- save / load ---------- */
+  function save() {
+    if (!tiles || K.thumb) return;
+    var s = ""; for (var i = 0; i < tiles.length; i++) s += String.fromCharCode(48 + tiles[i]);
+    K.store.set("world", { v: 1, seed: seed, surf: Array.prototype.slice.call(surf), tiles: s, p: { x: player.x, y: player.y }, inv: inv, hotbar: hotbar, sel: sel, clock: clock, ach: achieved });
+    dirty = false;
+  }
+  function load() {
+    var d = K.store.get("world", null); if (!d || d.v !== 1 || !d.tiles || d.tiles.length !== WW * WH) return false;
+    seed = d.seed; tiles = new Uint8Array(WW * WH); for (var i = 0; i < tiles.length; i++) tiles[i] = d.tiles.charCodeAt(i) - 48;
+    top = new Int16Array(WW); for (var x = 0; x < WW; x++) recalcTop(x);
+    surf = d.surf && d.surf.length === WW ? d.surf : Array.prototype.slice.call(top);
+    player = newPlayer(0, 0); player.x = d.p.x; player.y = d.p.y;
+    inv = {}; Object.keys(d.inv || {}).forEach(function (k) { inv[+k] = d.inv[k]; });
+    hotbar = (d.hotbar || []).filter(function (h) { return inv[h] > 0; }); sel = Math.min(d.sel || 0, Math.max(0, hotbar.length - 1)); clock = d.clock || 0.3; achieved = d.ach || {};
+    return true;
+  }
+  K.on("pause", save);
+  window.addEventListener("pagehide", save);
+
+  /* ---------- input ---------- */
+  var touch = K.buttons([{ id: "left", icon: "left", side: "left", aria: "Walk left" }, { id: "right", icon: "right", side: "left", aria: "Walk right" },
+    { id: "mode", label: "MINE", side: "right", aria: "Switch between mining and building" }, { id: "jump", icon: "up", side: "right", size: 78, aria: "Jump" }]);
+  mode = "mine";
+  function setMode(m) { mode = m; var b = document.querySelector('.k-tbtn[aria-label^="Switch"]'); if (b) b.textContent = m === "mine" ? "MINE" : "BUILD"; }
+  K.on("button", function (id) { if (id === "mode") { setMode(mode === "mine" ? "build" : "mine"); K.sfx("click"); } if (id === "jump") jumpBuf = 0.12; });
+  var jumpBuf = 0, aimTile = null, holding = false, holdBtn = 0;
+  K.on("key", function (code) {
+    if (K.state !== "play") return;
+    if (/^Digit[1-9]$/.test(code)) { var n = +code.slice(5) - 1; if (n < hotbar.length) { sel = n; K.sfx("click"); } }
+    if (code === "Space" || code === "ArrowUp" || code === "KeyW") jumpBuf = 0.12;
+    if (code === "KeyC" || code === "KeyE") openCraft();
+    if (code === "KeyQ") setMode(mode === "mine" ? "build" : "mine");
+  });
+  window.addEventListener("wheel", function (e) { if (K.state !== "play" || !hotbar.length) return; sel = (sel + (e.deltaY > 0 ? 1 : -1) + hotbar.length) % hotbar.length; }, { passive: true });
+
+  function hotbarRect() { var n = 9, s = 40, w = n * s; return { x: (K.W - w) / 2, y: K.H - s - 8, s: s, w: w }; }
+  function craftBtnRect() { var hb = hotbarRect(); return { x: hb.x + hb.w + 10, y: hb.y, w: 64, h: hb.s }; }
+  function inRect(p, r) { return p.x >= r.x && p.x <= r.x + (r.w || r.s) && p.y >= r.y && p.y <= r.y + (r.h || r.s); }
+  function screenToTile(p) { return { x: Math.floor((p.x + cam.x) / T), y: Math.floor((p.y + cam.y) / T) }; }
+  K.on("down", function (p, e) {
+    if (K.state !== "play") return;
+    var hb = hotbarRect();
+    if (inRect(p, { x: hb.x, y: hb.y, w: hb.w, h: hb.s })) { var i = Math.floor((p.x - hb.x) / hb.s); if (i < hotbar.length) { sel = i; K.sfx("click"); } return; }
+    if (inRect(p, craftBtnRect())) { openCraft(); return; }
+    holding = true; holdBtn = e.button; aimTile = screenToTile(p);
+    if (e.button === 2 || (e.pointerType !== "mouse" && mode === "build")) { place(aimTile); holding = false; }
+  });
+  K.on("move", function (p) { aimTile = screenToTile(p); });
+  K.on("up", function () { holding = false; mineT = 0; });
+
+  function inReach(tx, ty) { var cx = player.x + player.w / 2, cy = player.y + 12; return K.dist(cx, cy, tx * T + 12, ty * T + 12) < T * 5; }
+  function place(tl) {
+    if (!tl || !hotbar.length) return;
+    var type = hotbar[sel]; if (!type || !inv[type]) return;
+    if (get(tl.x, tl.y) !== AIR && get(tl.x, tl.y) !== FLOWER) return;
+    if (!inReach(tl.x, tl.y)) { K.toast("Too far away"); return; }
+    var bx = tl.x * T, by = tl.y * T;
+    if (B[type].solid && bx < player.x + player.w && bx + T > player.x && by < player.y + player.h && by + T > player.y) return;
+    var neighbour = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(function (d) { var v = get(tl.x + d[0], tl.y + d[1]); return v !== AIR; });
+    if (!neighbour) return;
+    if (type === TORCH && !isSolid(get(tl.x, tl.y + 1)) && !isSolid(get(tl.x - 1, tl.y)) && !isSolid(get(tl.x + 1, tl.y))) return;
+    setT(tl.x, tl.y, type); take(type, 1); K.sfx("thud");
+  }
+
+  /* ---------- crafting ---------- */
+  var RECIPES = [
+    { out: PLANKS, n: 4, need: [[LOG, 1]] },
+    { out: TORCH, n: 4, need: [[PLANKS, 1], [COAL, 1]] },
+    { out: GLASS, n: 2, need: [[SAND, 2], [COAL, 1]] },
+    { out: BRICK, n: 4, need: [[STONE, 4]] }
+  ];
+  var craftEl = null;
+  function openCraft() {
+    if (craftEl) { closeCraft(); return; }
+    craftEl = document.createElement("div"); craftEl.className = "craft k-ui"; craftEl.setAttribute("role", "dialog"); craftEl.setAttribute("aria-label", "Crafting");
+    render();
+    document.body.appendChild(craftEl);
+    function render() {
+      craftEl.innerHTML = "<h2>Crafting</h2><ul>" + RECIPES.map(function (r, i) {
+        var ok = r.need.every(function (n) { return (inv[n[0]] || 0) >= n[1]; });
+        return "<li><div><b>" + r.n + " " + (r.out === TORCH ? "Torches" : B[r.out].name) + "</b><br><span>" + r.need.map(function (n) { return n[1] + " " + B[n[0]].name + " (" + (inv[n[0]] || 0) + ")"; }).join(" + ") +
+          '</span></div><button type="button" class="k-btn small" data-r="' + i + '"' + (ok ? "" : " disabled") + ">Craft</button></li>";
+      }).join("") + '</ul><div class="k-actions"><button type="button" class="k-btn alt small" data-close>Close</button></div>';
+      Array.prototype.forEach.call(craftEl.querySelectorAll("[data-r]"), function (b) {
+        b.addEventListener("click", function () {
+          var r = RECIPES[+b.getAttribute("data-r")];
+          if (!r.need.every(function (n) { return (inv[n[0]] || 0) >= n[1]; })) return;
+          r.need.forEach(function (n) { take(n[0], n[1]); }); give(r.out, r.n); K.sfx("power"); dirty = true; render();
+        });
+      });
+      craftEl.querySelector("[data-close]").addEventListener("click", closeCraft);
+    }
+  }
+  function closeCraft() { if (craftEl) { craftEl.remove(); craftEl = null; } if (K.cv) K.cv.focus(); }
+
+  /* ---------- update ---------- */
+  var cam = { x: 0, y: 0 };
+  function collide(dx, dy) {
+    player.x += dx;
+    var t0 = Math.floor(player.y / T), t1 = Math.floor((player.y + player.h - 1) / T);
+    if (dx !== 0) {
+      var cx = dx > 0 ? Math.floor((player.x + player.w) / T) : Math.floor(player.x / T);
+      for (var y = t0; y <= t1; y++) if (isSolid(get(cx, y))) {
+        // auto step-up for 1-block ledges while on ground
+        if (player.ground && y === t1 && !isSolid(get(cx, y - 1)) && !isSolid(get(cx, y - 2)) && !isSolid(get(Math.floor((player.x + player.w / 2) / T), Math.floor(player.y / T) - 1))) { player.y = y * T - player.h; continue; }
+        player.x = dx > 0 ? cx * T - player.w : (cx + 1) * T; player.vx = 0; break;
+      }
+    }
+    player.y += dy;
+    var l = Math.floor((player.x + 1) / T), r = Math.floor((player.x + player.w - 2) / T);
+    if (dy > 0) { var ry = Math.floor((player.y + player.h) / T); for (var x = l; x <= r; x++) if (isSolid(get(x, ry))) { player.y = ry * T - player.h; player.vy = 0; player.ground = true; break; } }
+    else if (dy < 0) { var ty = Math.floor(player.y / T); for (x = l; x <= r; x++) if (isSolid(get(x, ty))) { player.y = (ty + 1) * T; player.vy = 0; break; } }
+  }
+  function achieve(key, msg) { if (achieved[key]) return; achieved[key] = 1; K.toast(msg, 2400); K.sfx("win"); }
+
+  function update(dt) {
+    t += dt; fx.update(dt);
+    if (K.state !== "play") return;
+    clock = (clock + dt / 300) % 1; // 5 minute day
+    var dir = (K.held("right") || touch.right ? 1 : 0) - (K.held("left") || touch.left ? 1 : 0);
+    player.vx = K.lerp(player.vx, dir * 170, Math.min(1, dt * 14));
+    if (dir) player.face = dir;
+    jumpBuf -= dt;
+    if ((jumpBuf > 0 || ((K.held("jump") || touch.jump) && player.ground)) && player.ground) { player.vy = -430; player.ground = false; jumpBuf = 0; }
+    player.vy = Math.min(800, player.vy + 1500 * dt);
+    player.ground = false;
+    collide(player.vx * dt, 0); collide(0, player.vy * dt);
+    if (Math.abs(player.vx) > 20 && player.ground) player.walk += dt * 10; else player.walk = 0;
+    player.x = K.clamp(player.x, 0, WW * T - player.w);
+    if (player.y > WH * T) { player.y = 0; }
+
+    // mining
+    if (holding && aimTile && holdBtn !== 2 && (mode === "mine" || K.pointer.type === "mouse")) {
+      var v = get(aimTile.x, aimTile.y);
+      if (v !== AIR && v !== BEDROCK && inReach(aimTile.x, aimTile.y)) {
+        if (!mineAt || mineAt.x !== aimTile.x || mineAt.y !== aimTile.y) { mineAt = { x: aimTile.x, y: aimTile.y }; mineT = 0; }
+        mineT += dt;
+        if (Math.random() < dt * 12) fx.burst(aimTile.x * T + 12, aimTile.y * T + 12, 2, { color: [B[v].base || "#fff", "#fff"], speed: 80, life: 0.3, gravity: 300 });
+        if (Math.floor(mineT * 6) !== Math.floor((mineT - dt) * 6)) K.sfx("step");
+        if (mineT >= B[v].hard) {
+          setT(aimTile.x, aimTile.y, AIR); give(B[v].drop, 1); K.sfx("thud");
+          fx.burst(aimTile.x * T + 12, aimTile.y * T + 12, 14, { color: [B[v].base || "#ffd84a", B[v].alt || "#fff"], speed: 150, life: 0.5, gravity: 500, size: 4 });
+          // unsupported torches/flowers fall
+          [[0, -1], [1, 0], [-1, 0]].forEach(function (d) { var nx = aimTile.x + d[0], ny = aimTile.y + d[1], nv = get(nx, ny); if ((nv === TORCH && !isSolid(get(nx, ny + 1)) && !isSolid(get(nx - 1, ny)) && !isSolid(get(nx + 1, ny))) || (nv === FLOWER && d[1] === -1)) { setT(nx, ny, AIR); if (nv === TORCH) give(TORCH, 1); } });
+          if (v === DIAMOND) achieve("diamond", "You found a diamond!");
+          if (v === GOLD) achieve("gold", "Gold! Keep digging for diamonds.");
+          if (v === LOG) achieve("log", "Got wood. Press C to craft planks.");
+          mineT = 0; mineAt = null;
+        }
+      } else { mineT = 0; mineAt = null; }
+    } else if (!holding) { mineT = 0; mineAt = null; }
+
+    // camera
+    cam.x = K.clamp(player.x + player.w / 2 - K.W / 2, 0, WW * T - K.W);
+    cam.y = K.clamp(player.y + player.h / 2 - K.H / 2 + 20, 0, WH * T - K.H);
+    saveT += dt; if (saveT > 8 && dirty) { saveT = 0; save(); }
+  }
+
+  /* ---------- draw ---------- */
+  var lightCv = document.createElement("canvas"), lightCtx = lightCv.getContext("2d");
+  var lightBuf = null, costBuf = null;
+  function daylight() { var a = Math.cos(clock * Math.PI * 2); return K.clamp(0.55 - a * 0.65, 0.15, 1); } // clock 0 = midnight, .5 = noon
+  function draw(ctx) {
+    if (!tiles) return;
+    var W = K.W, H = K.H, dl = daylight();
+    // sky
+    var sk = ctx.createLinearGradient(0, 0, 0, H);
+    sk.addColorStop(0, "rgb(" + Math.round(K.lerp(8, 70, dl)) + "," + Math.round(K.lerp(10, 120, dl)) + "," + Math.round(K.lerp(40, 230, dl)) + ")");
+    sk.addColorStop(1, "rgb(" + Math.round(K.lerp(30, 170, dl)) + "," + Math.round(K.lerp(20, 140, dl)) + "," + Math.round(K.lerp(70, 255, dl)) + ")");
+    ctx.fillStyle = sk; ctx.fillRect(0, 0, W, H);
+    if (dl < 0.6) { ctx.fillStyle = "rgba(255,255,255," + (0.6 - dl) + ")"; for (var s = 0; s < 60; s++) ctx.fillRect((s * 97.3 - cam.x * 0.05) % W + (s * 97.3 - cam.x * 0.05 < 0 ? W : 0), (s * 53.7) % (H * 0.6), 2, 2); }
+    var ang = clock * Math.PI * 2 + Math.PI / 2, sx = W / 2 + Math.cos(ang) * W * 0.42, sy = H * 0.85 + Math.sin(ang) * H * 0.75;
+    K.glow(ctx, "#fff7b0", 30); ctx.fillStyle = "#fff4b8"; ctx.fillRect(sx - 18, sy - 18, 36, 36);
+    var mx = W / 2 - Math.cos(ang) * W * 0.42, my = H * 0.85 - Math.sin(ang) * H * 0.75; ctx.fillStyle = "#dfe6ff"; K.glow(ctx, "#cfd8ff", 20); ctx.fillRect(mx - 13, my - 13, 26, 26); K.noGlow(ctx);
+    // clouds
+    ctx.fillStyle = "rgba(255,255,255," + (0.12 + dl * 0.35) + ")";
+    for (var c = 0; c < 6; c++) { var cx = ((c * 260 + t * 8 - cam.x * 0.2) % (W + 300) + W + 300) % (W + 300) - 150, cy = 40 + (c * 37) % 90; ctx.fillRect(cx, cy, 120, 18); ctx.fillRect(cx + 24, cy - 12, 70, 14); }
+
+    var x0 = Math.floor(cam.x / T), y0 = Math.floor(cam.y / T), x1 = Math.ceil((cam.x + W) / T), y1 = Math.ceil((cam.y + H) / T);
+    ctx.save(); ctx.translate(-Math.round(cam.x), -Math.round(cam.y));
+    // background walls behind caves (darker stone where underground)
+    for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) {
+      if (x < 0 || x >= WW || y >= WH) continue;
+      var v = get(x, y);
+      if (y > surf[x] && (v === AIR || v === TORCH || v === GLASS || v === FLOWER)) { ctx.fillStyle = y > surf[x] + 4 ? "#262a45" : "#3b2b22"; ctx.fillRect(x * T, y * T, T, T); }
+      if (v !== AIR) ctx.drawImage(sprites[v], x * T, y * T);
+    }
+    // mining crack
+    if (mineAt && mineT > 0) {
+      var hv = get(mineAt.x, mineAt.y), pr = K.clamp(mineT / B[hv].hard, 0, 1);
+      ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.lineWidth = 2; ctx.beginPath();
+      var mx0 = mineAt.x * T, my0 = mineAt.y * T, lines = Math.ceil(pr * 5);
+      for (var i = 0; i < lines; i++) { ctx.moveTo(mx0 + 12, my0 + 12); ctx.lineTo(mx0 + 12 + Math.cos(i * 2.4) * 11 * pr, my0 + 12 + Math.sin(i * 2.4) * 11 * pr); }
+      ctx.stroke();
+    }
+    // player
+    var p = player, sw = Math.sin(p.walk) * 6;
+    ctx.save(); ctx.translate(Math.round(p.x + p.w / 2), Math.round(p.y));
+    ctx.fillStyle = "#2a3170"; ctx.fillRect(-7 + sw * 0.5, 30, 6, 12); ctx.fillRect(1 - sw * 0.5, 30, 6, 12);
+    ctx.fillStyle = "#2fb8ff"; ctx.fillRect(-8, 14, 16, 17);
+    ctx.fillStyle = "#a65bff"; ctx.fillRect(-8, 14, 16, 4);
+    ctx.fillStyle = "#e8b58f"; ctx.fillRect(-7, 0, 14, 14);
+    ctx.fillStyle = "#3a2618"; ctx.fillRect(-7, 0, 14, 4); ctx.fillRect(p.face > 0 ? -7 : 4, 0, 3, 8);
+    ctx.fillStyle = "#fff"; ctx.fillRect(p.face > 0 ? 1 : -5, 6, 4, 3); ctx.fillStyle = "#14143a"; ctx.fillRect(p.face > 0 ? 3 : -5, 6, 2, 3);
+    ctx.fillStyle = "#e8b58f"; ctx.fillRect(p.face > 0 ? 6 : -10, 16 - sw * 0.4, 4, 11);
+    ctx.restore();
+    fx.draw(ctx);
+    // highlight target
+    if (aimTile && K.pointer.type === "mouse" || (aimTile && holding)) {
+      var reach = inReach(aimTile.x, aimTile.y);
+      ctx.strokeStyle = reach ? "rgba(255,255,255,.85)" : "rgba(255,80,120,.6)"; ctx.lineWidth = 2; ctx.strokeRect(aimTile.x * T + 1, aimTile.y * T + 1, T - 2, T - 2);
+    }
+    ctx.restore();
+
+    // lighting: sky + torch light spreading through air and blocks (one pixel per tile, smoothed when scaled up)
+    var cols = x1 - x0 + 1, rows = y1 - y0 + 1, M = 10, ew = cols + M * 2, eh = rows + M * 2;
+    if (lightCv.width !== cols || lightCv.height !== rows) { lightCv.width = cols; lightCv.height = rows; }
+    if (!lightBuf || lightBuf.length !== ew * eh) { lightBuf = new Float32Array(ew * eh); costBuf = new Float32Array(ew * eh); }
+    var Lb = lightBuf, Cb = costBuf, ex0 = x0 - M, ey0 = y0 - M;
+    for (y = 0; y < eh; y++) for (x = 0; x < ew; x++) {
+      var wx = ex0 + x, wy = ey0 + y, tv = get(wx, wy), k2 = y * ew + x;
+      var open = wx < 0 || wx >= WW || wy < top[wx];
+      Lb[k2] = tv === TORCH ? 1 : open ? dl : 0;
+      Cb[k2] = isSolid(tv) ? 0.2 : (tv === LEAVES ? 0.12 : 0.075);
+    }
+    var pk = (Math.floor((p.y + 16) / T) - ey0) * ew + (Math.floor((p.x + p.w / 2) / T) - ex0);
+    if (pk >= 0 && pk < Lb.length) Lb[pk] = Math.max(Lb[pk], 0.62);
+    for (var pass = 0; pass < 2; pass++) {
+      for (y = 0; y < eh; y++) { var row = y * ew; for (x = 1; x < ew; x++) { var v1 = Lb[row + x - 1] - Cb[row + x]; if (v1 > Lb[row + x]) Lb[row + x] = v1; } for (x = ew - 2; x >= 0; x--) { var v2 = Lb[row + x + 1] - Cb[row + x]; if (v2 > Lb[row + x]) Lb[row + x] = v2; } }
+      for (x = 0; x < ew; x++) { for (y = 1; y < eh; y++) { var a1 = Lb[(y - 1) * ew + x] - Cb[y * ew + x]; if (a1 > Lb[y * ew + x]) Lb[y * ew + x] = a1; } for (y = eh - 2; y >= 0; y--) { var a2 = Lb[(y + 1) * ew + x] - Cb[y * ew + x]; if (a2 > Lb[y * ew + x]) Lb[y * ew + x] = a2; } }
+    }
+    var img = lightCtx.createImageData(cols, rows), data = img.data;
+    for (y = 0; y < rows; y++) for (x = 0; x < cols; x++) {
+      var Lv = Lb[(y + M) * ew + (x + M)], o = (y * cols + x) * 4;
+      data[o] = 4; data[o + 1] = 5; data[o + 2] = 18; data[o + 3] = Math.round(K.clamp(1 - Lv * 1.15, 0, 0.95) * 255);
+    }
+    lightCtx.putImageData(img, 0, 0);
+    ctx.save(); ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(lightCv, x0 * T - Math.round(cam.x), y0 * T - Math.round(cam.y), cols * T, rows * T);
+    ctx.restore();
+
+    // HUD: hotbar
+    var hb = hotbarRect();
+    for (var h = 0; h < 9; h++) {
+      var bx = hb.x + h * hb.s, by = hb.y;
+      ctx.fillStyle = "rgba(8,10,30,.7)"; ctx.fillRect(bx + 2, by + 2, hb.s - 4, hb.s - 4);
+      ctx.strokeStyle = h === sel ? C.cyan : "rgba(160,170,255,.3)"; ctx.lineWidth = h === sel ? 2.5 : 1;
+      if (h === sel) K.glow(ctx, C.cyan, 10); ctx.strokeRect(bx + 2, by + 2, hb.s - 4, hb.s - 4); K.noGlow(ctx);
+      var ty = hotbar[h];
+      if (ty) { ctx.drawImage(sprites[ty], bx + 8, by + 6); K.text(ctx, String(inv[ty]), bx + hb.s - 5, by + hb.s - 9, { size: 12, color: "#fff", align: "right", stroke: "#000", strokeWidth: 3 }); }
+      K.text(ctx, String(h + 1), bx + 6, by + 9, { size: 9, color: "rgba(255,255,255,.45)", family: "body" });
+    }
+    var cr = craftBtnRect();
+    ctx.fillStyle = "rgba(8,10,30,.7)"; ctx.fillRect(cr.x, cr.y + 2, cr.w, cr.h - 4); ctx.strokeStyle = "rgba(160,170,255,.4)"; ctx.strokeRect(cr.x, cr.y + 2, cr.w, cr.h - 4);
+    K.text(ctx, "Craft", cr.x + cr.w / 2, cr.y + cr.h / 2, { size: 13, color: "#fff", align: "center" });
+    if (hotbar[sel]) K.text(ctx, B[hotbar[sel]].name + (K.isTouch ? "  ·  " + (mode === "mine" ? "Mining" : "Building") : ""), W / 2, hb.y - 12, { size: 13, color: "#fff", align: "center", family: "body", weight: 600, stroke: "rgba(0,0,0,.6)", strokeWidth: 3 });
+    var depthM = Math.max(0, Math.floor(p.y / T) - 30);
+    K.text(ctx, (dl > 0.5 ? "Day" : "Night") + "   Depth " + depthM + " m", 12, 18, { size: 13, color: "#fff", family: "body", weight: 600, stroke: "rgba(0,0,0,.55)", strokeWidth: 3 });
+  }
+
+  function startNew() { generate((Math.random() * 1e9) | 0); K.state = "play"; dirty = true; save(); }
+  function startLoad() { if (!load()) generate((Math.random() * 1e9) | 0); K.state = "play"; }
+  var hasSave = !!K.store.get("world", null);
+  generate(K.thumb ? 424242 : 7);
+  K.menu({
+    title: "Blocklands",
+    body: "Mine, collect and build in a world that saves in your browser. <kbd>A</kbd> <kbd>D</kbd> to walk, <kbd>W</kbd>/<kbd>Space</kbd> to jump. Hold the left mouse button to mine, right-click to place. <kbd>1</kbd>–<kbd>9</kbd> picks a block, <kbd>C</kbd> opens crafting. Dig deep to find diamonds.",
+    button: hasSave ? "Continue world" : "Start new world",
+    secondary: hasSave ? [{ label: "New world", onClick: function () { if (confirm("Start a new world? Your current world will be replaced.")) { K.hideScreen(); startNew(); K.updateToolbar(); } } }] : [],
+    onStart: function () {
+      if (K.thumb) { K.thumbTime = 0.2; clock = 0.42; generate(424242); K.state = "play"; player.vx = 0; return; }
+      if (hasSave) startLoad(); else startNew();
+    }
+  });
+  K.onRestart = null;
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

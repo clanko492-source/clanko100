@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Shadow Maze | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="shadow-maze" style="--game-bg:#020206">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var ctx = K.canvas(720, 480, { fill: { minW: 520, maxW: 960 } });
+  var TS = 44;
+  var dark = document.createElement("canvas"), dctx = dark.getContext("2d");
+  var joy = K.joystick({ hint: "Drag here to move" });
+
+  var grid, GW, GH, pl, ghost, keys, bats, exit, level, battery, gotKeys, hb, t = 0, caughtT, winT, aim = 0, steps, msgT, msg, startTime;
+
+  function genMaze(cw, ch) {
+    GW = cw * 2 + 1; GH = ch * 2 + 1; grid = [];
+    for (var y = 0; y < GH; y++) { grid.push(new Array(GW).fill(1)); }
+    var stack = [[0, 0]], seen = {}; seen["0,0"] = 1; grid[1][1] = 0;
+    while (stack.length) {
+      var cur = stack[stack.length - 1], cx = cur[0], cy = cur[1];
+      var n = K.shuffle([[1, 0], [-1, 0], [0, 1], [0, -1]]).filter(function (d) { var nx = cx + d[0], ny = cy + d[1]; return nx >= 0 && ny >= 0 && nx < cw && ny < ch && !seen[nx + "," + ny]; });
+      if (!n.length) { stack.pop(); continue; }
+      var d = n[0], nx = cx + d[0], ny = cy + d[1]; seen[nx + "," + ny] = 1;
+      grid[cy * 2 + 1 + d[1]][cx * 2 + 1 + d[0]] = 0; grid[ny * 2 + 1][nx * 2 + 1] = 0; stack.push([nx, ny]);
+    }
+    // extra openings so you can run around the shadow
+    for (var i = 0; i < cw * ch * 0.12; i++) {
+      var x = K.randi(1, GW - 2), yy = K.randi(1, GH - 2);
+      if (grid[yy][x] === 1 && ((grid[yy][x - 1] === 0 && grid[yy][x + 1] === 0) || (grid[yy - 1][x] === 0 && grid[yy + 1][x] === 0))) grid[yy][x] = 0;
+    }
+  }
+  function wall(tx, ty) { return tx < 0 || ty < 0 || tx >= GW || ty >= GH || grid[ty][tx] === 1; }
+  function cellCenter(c) { return { x: (c[0] * 2 + 1) * TS + TS / 2, y: (c[1] * 2 + 1) * TS + TS / 2 }; }
+  function randomCell(cw, ch, minDist, from) {
+    for (var i = 0; i < 400; i++) { var c = [K.randi(0, cw - 1), K.randi(0, ch - 1)], p = cellCenter(c); if (!from || K.dist(p.x, p.y, from.x, from.y) >= minDist) return p; }
+    return cellCenter([cw - 1, ch - 1]);
+  }
+
+  function startLevel(n) {
+    level = n;
+    var cw = Math.min(8 + n * 2, 22), ch = Math.min(6 + n, 15);
+    genMaze(cw, ch);
+    var s = cellCenter([0, 0]);
+    pl = { x: s.x, y: s.y, r: 11, a: 0 };
+    exit = cellCenter([cw - 1, ch - 1]);
+    keys = []; for (var i = 0; i < 3; i++) keys.push(randomCell(cw, ch, TS * 6, s));
+    bats = []; for (i = 0; i < 2 + Math.floor(n / 2); i++) bats.push(randomCell(cw, ch, TS * 4, s));
+    var gp = randomCell(cw, ch, TS * 12, s);
+    ghost = { x: gp.x, y: gp.y, speed: Math.min(150, 92 + n * 9), hunt: false, path: [], repath: 0, target: null, lit: 0, seen: 0 };
+    gotKeys = 0; caughtT = 0; winT = 0; hb = 1; steps = 0; msg = "Find 3 keys, then the exit"; msgT = 3;
+  }
+
+  function moveCircle(o, dx, dy) {
+    o.x += dx; resolve(o, true); o.y += dy; resolve(o, false);
+  }
+  function resolve(o, horiz) {
+    var x0 = Math.floor((o.x - o.r) / TS), x1 = Math.floor((o.x + o.r) / TS), y0 = Math.floor((o.y - o.r) / TS), y1 = Math.floor((o.y + o.r) / TS);
+    for (var ty = y0; ty <= y1; ty++) for (var tx = x0; tx <= x1; tx++) {
+      if (!wall(tx, ty)) continue;
+      var nx = K.clamp(o.x, tx * TS, tx * TS + TS), ny = K.clamp(o.y, ty * TS, ty * TS + TS), dx = o.x - nx, dy = o.y - ny, d = Math.hypot(dx, dy);
+      if (d < o.r) {
+        if (d === 0) { if (horiz) o.x += o.x < tx * TS + TS / 2 ? -1 : 1; else o.y += o.y < ty * TS + TS / 2 ? -1 : 1; continue; }
+        o.x += dx / d * (o.r - d); o.y += dy / d * (o.r - d);
+      }
+    }
+  }
+  function los(ax, ay, bx, by) {
+    var d = K.dist(ax, ay, bx, by), n = Math.ceil(d / 10);
+    for (var i = 1; i < n; i++) { var x = ax + (bx - ax) * i / n, y = ay + (by - ay) * i / n; if (wall(Math.floor(x / TS), Math.floor(y / TS))) return false; }
+    return true;
+  }
+  function bfs(fx, fy, tx, ty) {
+    var key = function (x, y) { return y * GW + x; }, prev = {}, q = [[fx, fy]], seen = {}; seen[key(fx, fy)] = 1;
+    while (q.length) {
+      var c = q.shift();
+      if (c[0] === tx && c[1] === ty) break;
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) { var nx = c[0] + d[0], ny = c[1] + d[1], k = key(nx, ny); if (!wall(nx, ny) && !seen[k]) { seen[k] = 1; prev[k] = c; q.push([nx, ny]); } });
+    }
+    var path = [], cur = [tx, ty];
+    while (cur && !(cur[0] === fx && cur[1] === fy)) { path.unshift(cur); cur = prev[key(cur[0], cur[1])]; }
+    return path;
+  }
+
+  // flashlight aim
+  var mouseAim = false;
+  K.on("move", function (p, e) { if (e.pointerType === "mouse" && K.state === "play") { mouseAim = true; aim = Math.atan2(p.y - (pl.y - camY()), p.x - (pl.x - camX())); } });
+  function camX() { return K.clamp(pl.x - K.W / 2, -60, GW * TS - K.W + 60); }
+  function camY() { return K.clamp(pl.y - K.H / 2, -60, GH * TS - K.H + 60); }
+
+  function update(dt) {
+    t += dt;
+    if (K.state !== "play") return;
+    if (caughtT > 0) { caughtT -= dt; if (caughtT <= 0) gameOver(); return; }
+    if (winT > 0) { winT -= dt; if (winT <= 0) { startLevel(level + 1); } return; }
+    if (msgT > 0) msgT -= dt;
+    var ax = K.axis(), sp = 135 * (K.keys.ShiftLeft || K.keys.ShiftRight ? 1.25 : 1);
+    if (ax.x || ax.y) {
+      moveCircle(pl, ax.x * sp * dt, ax.y * sp * dt);
+      if (!mouseAim || joy.active) aim = Math.atan2(ax.y, ax.x);
+      steps += dt * 3.2; if (Math.floor(steps) !== Math.floor(steps - dt * 3.2)) K.sfx("step");
+    }
+    if (aim == null) aim = 0;
+    battery = Math.max(0, battery - dt / 75);
+
+    // pickups
+    keys = keys.filter(function (k) { if (K.dist(k.x, k.y, pl.x, pl.y) < 26) { gotKeys++; K.sfx("coin"); msg = gotKeys < 3 ? "Key " + gotKeys + " of 3" : "The exit is open. Run!"; msgT = 2.2; return false; } return true; });
+    bats = bats.filter(function (b) { if (K.dist(b.x, b.y, pl.x, pl.y) < 26) { battery = Math.min(1, battery + 0.5); K.sfx("power"); msg = "Battery +50%"; msgT = 1.6; return false; } return true; });
+    if (gotKeys >= 3 && K.dist(exit.x, exit.y, pl.x, pl.y) < 26) { winT = 1.3; K.sfx("win"); msg = "Escaped! Going deeper..."; msgT = 1.3; return; }
+
+    // shadow AI
+    var g = ghost, dpl = K.dist(g.x, g.y, pl.x, pl.y);
+    var sees = dpl < TS * 8 && los(g.x, g.y, pl.x, pl.y);
+    if (sees || dpl < TS * 3.2) { if (!g.hunt) { K.tone(90, 0.8, { type: "sawtooth", slide: 60, vol: 0.12 }); } g.hunt = true; g.seen = 4; }
+    else { g.seen -= dt; if (g.seen <= 0) g.hunt = false; }
+    // light scares it: is it inside the beam?
+    var beamLen = beamRange(), ang = Math.atan2(g.y - pl.y, g.x - pl.x), da = Math.atan2(Math.sin(ang - aim), Math.cos(ang - aim));
+    g.lit = (Math.abs(da) < 0.42 && dpl < beamLen && los(pl.x, pl.y, g.x, g.y)) ? 1 : 0;
+    g.repath -= dt;
+    if (g.repath <= 0 || !g.path.length) {
+      g.repath = 0.45;
+      var gx = Math.floor(g.x / TS), gy = Math.floor(g.y / TS);
+      if (g.hunt) g.path = bfs(gx, gy, Math.floor(pl.x / TS), Math.floor(pl.y / TS));
+      else if (!g.path.length) { var rc = randomCell((GW - 1) / 2, (GH - 1) / 2, 0); g.path = bfs(gx, gy, Math.floor(rc.x / TS), Math.floor(rc.y / TS)); }
+    }
+    var gs = K.thumb ? 0 : (g.hunt ? g.speed : 60) * (g.lit ? 0.35 : 1);
+    if (g.path.length) {
+      var nxt = g.path[0], tx = nxt[0] * TS + TS / 2, ty = nxt[1] * TS + TS / 2, dd = K.dist(g.x, g.y, tx, ty);
+      if (dd < 4) g.path.shift(); else { g.x += (tx - g.x) / dd * gs * dt; g.y += (ty - g.y) / dd * gs * dt; }
+    }
+    if (dpl < 22) { caughtT = 1.6; K.sfx("lose"); K.noise(0.8, { freq: 600, vol: 0.4 }); K.shake(18); }
+    // heartbeat
+    hb -= dt;
+    var close = K.clamp(1 - dpl / (TS * 9), 0, 1);
+    if (hb <= 0 && close > 0.05) { hb = K.lerp(1.4, 0.32, close); K.tone(58, 0.11, { type: "sine", vol: 0.25 + close * 0.3 }); K.tone(52, 0.1, { type: "sine", vol: 0.2 + close * 0.25, delay: 0.16 }); }
+  }
+  function beamRange() { return battery > 0 ? TS * (2.8 + battery * 3.6) : TS * 1.2; }
+
+  function draw(ctx) {
+    if (!grid) return;
+    var W = K.W, H = K.H, cx = camX(), cy = camY();
+    ctx.save(); K.applyShake(ctx, 1 / 60);
+    ctx.fillStyle = "#07060f"; ctx.fillRect(-20, -20, W + 40, H + 40);
+    ctx.save(); ctx.translate(-Math.round(cx), -Math.round(cy));
+    var x0 = Math.max(0, Math.floor(cx / TS)), y0 = Math.max(0, Math.floor(cy / TS)), x1 = Math.min(GW - 1, Math.ceil((cx + W) / TS)), y1 = Math.min(GH - 1, Math.ceil((cy + H) / TS));
+    for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) {
+      if (grid[y][x] === 1) {
+        ctx.fillStyle = (x * 7 + y * 3) % 5 ? "#33295a" : "#3a2f66"; ctx.fillRect(x * TS, y * TS, TS, TS);
+        ctx.fillStyle = "#54468c"; if (!wall(x, y + 1)) ctx.fillRect(x * TS, y * TS + TS - 6, TS, 6);
+        ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(x * TS + 6, y * TS + 8, 10, 4); ctx.fillRect(x * TS + 24, y * TS + 22, 12, 4);
+      } else {
+        ctx.fillStyle = (x + y) % 2 ? "#1f1b33" : "#231e3a"; ctx.fillRect(x * TS, y * TS, TS, TS);
+      }
+    }
+    // exit
+    ctx.save(); ctx.translate(exit.x, exit.y);
+    ctx.strokeStyle = gotKeys >= 3 ? C.green : "#5b4a7c"; ctx.lineWidth = 3; if (gotKeys >= 3) K.glow(ctx, C.green, 18);
+    ctx.strokeRect(-14, -18, 28, 36); ctx.fillStyle = gotKeys >= 3 ? "rgba(61,255,168,.25)" : "rgba(40,30,60,.8)"; ctx.fillRect(-14, -18, 28, 36); K.noGlow(ctx);
+    ctx.restore();
+    keys.forEach(function (k) {
+      ctx.save(); ctx.translate(k.x, k.y + Math.sin(t * 3 + k.x) * 2); K.glow(ctx, C.yellow, 14); ctx.strokeStyle = C.yellow; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(-5, 0, 5, 0, Math.PI * 2); ctx.moveTo(0, 0); ctx.lineTo(11, 0); ctx.moveTo(8, 0); ctx.lineTo(8, 5); ctx.moveTo(11, 0); ctx.lineTo(11, 4); ctx.stroke(); K.noGlow(ctx); ctx.restore();
+    });
+    bats.forEach(function (b) { ctx.fillStyle = C.cyan; K.glow(ctx, C.cyan, 10); ctx.fillRect(b.x - 6, b.y - 10, 12, 20); ctx.fillRect(b.x - 3, b.y - 13, 6, 3); K.noGlow(ctx); ctx.fillStyle = "#04121a"; ctx.fillRect(b.x - 4, b.y - 2, 8, 9); });
+    // player
+    ctx.save(); ctx.translate(pl.x, pl.y); ctx.rotate(aim);
+    ctx.fillStyle = "#cfd6ff"; ctx.beginPath(); ctx.arc(0, 0, pl.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#2b2f6b"; ctx.beginPath(); ctx.arc(-2, 0, pl.r - 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#fff6b0"; ctx.fillRect(6, -3, 9, 6);
+    ctx.restore();
+    // shadow creature (drawn before darkness: only seen when lit, eyes drawn after)
+    var g = ghost;
+    ctx.save(); ctx.translate(g.x, g.y);
+    var wob = Math.sin(t * 5) * 2;
+    var gg = ctx.createRadialGradient(0, -4, 2, 0, 0, 30); gg.addColorStop(0, "rgba(0,0,0,.95)"); gg.addColorStop(0.7, "rgba(10,0,20,.85)"); gg.addColorStop(1, "rgba(10,0,20,0)");
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.moveTo(-18, 18);
+    ctx.quadraticCurveTo(-24, -26 + wob, 0, -30); ctx.quadraticCurveTo(24, -26 - wob, 18, 18);
+    for (var w = 0; w < 4; w++) ctx.lineTo(18 - w * 12 - 6, 10 + (w % 2) * 10 + wob);
+    ctx.fill(); ctx.restore();
+    ctx.restore();
+
+    // darkness + flashlight
+    var dw = Math.ceil(W), dh = Math.ceil(H);
+    if (dark.width !== dw || dark.height !== dh) { dark.width = dw; dark.height = dh; }
+    dctx.globalCompositeOperation = "source-over"; dctx.fillStyle = "rgba(2,2,6,.97)"; dctx.fillRect(0, 0, dw, dh);
+    dctx.globalCompositeOperation = "destination-out";
+    var px = pl.x - cx, py = pl.y - cy, flick = battery < 0.15 && battery > 0 ? (Math.random() < 0.15 ? 0.3 : 1) : 1;
+    var amb = dctx.createRadialGradient(px, py, 4, px, py, TS * 2.3); amb.addColorStop(0, "rgba(0,0,0,.85)"); amb.addColorStop(1, "rgba(0,0,0,0)");
+    dctx.fillStyle = amb; dctx.beginPath(); dctx.arc(px, py, TS * 2.3, 0, Math.PI * 2); dctx.fill();
+    var R = beamRange(), spread = 0.48;
+    var beam = dctx.createRadialGradient(px, py, 10, px, py, R); beam.addColorStop(0, "rgba(0,0,0," + flick + ")"); beam.addColorStop(0.7, "rgba(0,0,0," + 0.8 * flick + ")"); beam.addColorStop(1, "rgba(0,0,0,0)");
+    dctx.fillStyle = beam; dctx.beginPath(); dctx.moveTo(px, py);
+    // clip the beam with walls using rays
+    var rays = 48;
+    for (var i = 0; i <= rays; i++) {
+      var a = aim - spread + (spread * 2) * i / rays, len = 0;
+      while (len < R) { len += 6; if (wall(Math.floor((pl.x + Math.cos(a) * len) / TS), Math.floor((pl.y + Math.sin(a) * len) / TS))) { len += 8; break; } }
+      dctx.lineTo(px + Math.cos(a) * len, py + Math.sin(a) * len);
+    }
+    dctx.closePath(); dctx.fill();
+    // keys and exit glow faintly through the dark
+    keys.forEach(function (k) { var kg = dctx.createRadialGradient(k.x - cx, k.y - cy, 1, k.x - cx, k.y - cy, 22); kg.addColorStop(0, "rgba(0,0,0,.55)"); kg.addColorStop(1, "rgba(0,0,0,0)"); dctx.fillStyle = kg; dctx.fillRect(k.x - cx - 22, k.y - cy - 22, 44, 44); });
+    if (gotKeys >= 3) { var eg = dctx.createRadialGradient(exit.x - cx, exit.y - cy, 1, exit.x - cx, exit.y - cy, 46); eg.addColorStop(0, "rgba(0,0,0,.8)"); eg.addColorStop(1, "rgba(0,0,0,0)"); dctx.fillStyle = eg; dctx.fillRect(exit.x - cx - 46, exit.y - cy - 46, 92, 92); }
+    ctx.drawImage(dark, 0, 0, W, H);
+    // eyes always glow
+    var ex = g.x - cx, ey = g.y - cy, close = K.clamp(1 - K.dist(g.x, g.y, pl.x, pl.y) / (TS * 10), 0, 1);
+    if (close > 0 || g.lit) {
+      ctx.fillStyle = g.hunt ? "rgba(255,40,80," + (0.5 + close * 0.5) + ")" : "rgba(200,180,255," + (0.3 + close * 0.4) + ")";
+      K.glow(ctx, g.hunt ? "#ff2850" : "#b9a6ff", 12);
+      var blink = Math.sin(t * 0.9) > 0.97 ? 0.2 : 1;
+      ctx.fillRect(ex - 9, ey - 14, 6, 3 * blink); ctx.fillRect(ex + 3, ey - 14, 6, 3 * blink); K.noGlow(ctx);
+    }
+    // vignette pulse when it is near
+    if (close > 0.3) { ctx.fillStyle = "rgba(120,0,30," + (close - 0.3) * 0.35 * (0.6 + Math.sin(t * 8) * 0.4) + ")"; ctx.fillRect(0, 0, W, H); }
+
+    // HUD
+    K.text(ctx, "Floor " + level, 14, 20, { size: 18, color: "#e6e2ff" });
+    for (var kk = 0; kk < 3; kk++) { ctx.strokeStyle = kk < gotKeys ? C.yellow : "rgba(255,255,255,.25)"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(20 + kk * 26, 46, 6, 0, Math.PI * 2); ctx.stroke(); }
+    K.text(ctx, "Light", 104, 46, { size: 11, color: C.muted, family: "body", weight: 600 });
+    ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.fillRect(140, 41, 80, 10); ctx.fillStyle = battery > 0.25 ? "#fff6b0" : C.red; ctx.fillRect(140, 41, 80 * battery, 10);
+    if (msgT > 0) { ctx.globalAlpha = Math.min(1, msgT); K.text(ctx, msg, W / 2, H - 36, { size: 18, color: "#fff", align: "center", stroke: "rgba(0,0,0,.6)", strokeWidth: 4 }); ctx.globalAlpha = 1; }
+    if (caughtT > 0) { ctx.fillStyle = "rgba(140,0,30," + (0.35 + Math.random() * 0.2) + ")"; ctx.fillRect(0, 0, W, H); K.text(ctx, "IT FOUND YOU", W / 2, H / 2, { size: 46, color: "#fff", align: "center", glow: 24, glowColor: "#ff2850" }); }
+    ctx.restore();
+  }
+
+  function gameOver() {
+    var secs = Math.round((performance.now() - startTime) / 1000);
+    K.over({ title: "Caught in the dark", score: level, label: "Floor reached", format: String, extra: '<div class="k-best">Survived ' + K.time(secs) + "</div>", onRestart: begin });
+  }
+  function begin() { battery = 1; startTime = performance.now(); startLevel(1); K.state = "play"; mouseAim = false; aim = wall(2, 1) ? Math.PI / 2 : 0;
+    if (K.thumb) {
+      K.thumbTime = 0.05; msgT = 0;
+      // find a long straight corridor so the flashlight shows the shadow
+      outer: for (var ty = 1; ty < GH - 1; ty += 2) for (var tx = 1; tx < GW - 8; tx += 2) {
+        var ok = true; for (var k = 0; k < 8; k++) if (wall(tx + k, ty)) { ok = false; break; }
+        if (ok) { pl.x = tx * TS + TS / 2; pl.y = ty * TS + TS / 2; break outer; }
+      }
+      aim = 0.04; ghost.x = pl.x + TS * 5.2; ghost.y = pl.y; ghost.hunt = true; ghost.path = []; ghost.speed = 0;
+      keys[0] = { x: pl.x + TS * 2.6, y: pl.y + 4 }; gotKeys = 1;
+    } }
+  K.onRestart = begin;
+  battery = 1; startLevel(1);
+  K.menu({
+    title: "Shadow Maze",
+    body: "Something lives in the maze. Collect <b>3 keys</b> to open the exit, keep your flashlight charged, and shine it on the shadow to slow it down. Move with <kbd>WASD</kbd> or <kbd>Arrows</kbd>, aim with the mouse, hold <kbd>Shift</kbd> to run. Best with sound on.",
+    button: "Enter the maze",
+    onStart: begin
+  });
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

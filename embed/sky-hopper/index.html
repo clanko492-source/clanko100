@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Sky Hopper | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="sky-hopper" style="--game-bg:#0b0a2a">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var W = 432, H = 768, GROUND = H - 70;
+  var ctx = K.canvas(W, H);
+  var fx = new K.Particles();
+  var bird, pipes, score, speed, spawnX, dead, deadT, t = 0, scroll = 0, flashT = 0, waiting;
+  var skyline = []; for (var i = 0; i < 24; i++) skyline.push({ w: K.randi(30, 60), h: K.randi(60, 200), lit: Math.random() });
+
+  function reset() { bird = { x: 120, y: H * 0.42, vy: 0, r: 15, rot: 0 }; pipes = []; score = 0; speed = 170; spawnX = W + 60; dead = false; deadT = 0; waiting = true; fx.clear(); }
+  function gapSize() { return Math.max(138, 186 - score * 1.4); }
+  function addPipe(x) { var g = gapSize(), top = K.rand(90, GROUND - g - 70); pipes.push({ x: x, top: top, gap: g, passed: false, wob: Math.random() * 6, move: score > 15 && Math.random() < 0.35 ? K.rand(20, 50) : 0 }); }
+  function flap() {
+    if (K.state !== "play" || dead) return;
+    if (waiting) { waiting = false; addPipe(W + 40); }
+    bird.vy = -360; K.sfx("jump");
+    fx.burst(bird.x - 10, bird.y + 6, 6, { color: [C.cyan, C.purple], speed: 90, angle: Math.PI * 0.75, spread: 1, life: 0.35 });
+  }
+  K.on("key", function (code) { if (code === "Space" || code === "ArrowUp" || code === "KeyW" || code === "Enter") flap(); });
+  K.on("down", function () { flap(); });
+
+  function die() {
+    if (dead) return; dead = true; deadT = 1.1; flashT = 1; K.sfx("hit"); K.shake(10);
+    fx.burst(bird.x, bird.y, 40, { color: [C.blue, C.purple, C.pink, "#fff"], speed: 240, life: 0.9 });
+  }
+  function update(dt) {
+    t += dt; fx.update(dt); flashT = Math.max(0, flashT - dt * 3);
+    var moving = !(K.state === "play" && dead);
+    if (moving) scroll += (K.state === "play" ? speed : 80) * dt;
+    if (K.state !== "play") { bird.y = H * 0.42 + Math.sin(t * 3) * 10; return; }
+    if (dead) {
+      bird.vy += 1600 * dt; bird.y = Math.min(GROUND - bird.r, bird.y + bird.vy * dt); bird.rot = Math.min(1.5, bird.rot + dt * 6);
+      deadT -= dt;
+      if (deadT <= 0) {
+        var medal = score >= 50 ? "Gold" : score >= 25 ? "Silver" : score >= 10 ? "Bronze" : "";
+        K.over({ score: score, label: "Pillars passed", format: String, extra: medal ? '<div class="k-best" style="color:' + (medal === "Gold" ? "#ffd84a" : medal === "Silver" ? "#dfe6ff" : "#ff9a3d") + '">' + medal + " medal</div>" : '<div class="k-best">Pass 10 for a bronze medal</div>', onRestart: start });
+      }
+      return;
+    }
+    if (waiting) { bird.y = H * 0.42 + Math.sin(t * 4) * 8; return; }
+    bird.vy = Math.min(620, bird.vy + 1300 * dt); bird.y += bird.vy * dt;
+    bird.rot = K.clamp(bird.vy / 700, -0.5, 1.2);
+    if (bird.y - bird.r < 0) { bird.y = bird.r; bird.vy = 0; }
+    if (bird.y + bird.r > GROUND) { bird.y = GROUND - bird.r; die(); }
+    speed = Math.min(250, 170 + score * 1.6);
+    pipes.forEach(function (p) {
+      p.x -= speed * dt;
+      if (p.move) p.top += Math.sin(t * 2 + p.wob) * p.move * dt;
+      if (!p.passed && p.x + 34 < bird.x) { p.passed = true; score++; K.sfx("coin"); }
+      var inX = bird.x + bird.r - 4 > p.x - 34 && bird.x - bird.r + 4 < p.x + 34;
+      if (inX && (bird.y - bird.r + 4 < p.top || bird.y + bird.r - 4 > p.top + p.gap)) die();
+    });
+    pipes = pipes.filter(function (p) { return p.x > -80; });
+    var last = pipes[pipes.length - 1];
+    if (!last || last.x < W - 230) addPipe(W + 40);
+  }
+
+  function pillar(ctx, x, y1, y2, cap) {
+    var g = ctx.createLinearGradient(x - 34, 0, x + 34, 0); g.addColorStop(0, "#3b1d8f"); g.addColorStop(0.5, "#6a3cf0"); g.addColorStop(1, "#2a1470");
+    ctx.fillStyle = g; ctx.fillRect(x - 30, y1, 60, y2 - y1);
+    ctx.fillStyle = "rgba(255,255,255,.18)"; ctx.fillRect(x - 18, y1, 6, y2 - y1);
+    K.glow(ctx, C.cyan, 14); ctx.fillStyle = C.cyan; ctx.fillRect(x - 36, cap - 9, 72, 18); K.noGlow(ctx);
+    ctx.fillStyle = "#0b2a3a"; ctx.fillRect(x - 32, cap - 3, 64, 6);
+  }
+  function draw(ctx) {
+    ctx.save(); K.applyShake(ctx, 1 / 60);
+    var g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#130d3f"); g.addColorStop(0.55, "#3a1a6b"); g.addColorStop(1, "#ff5fa8");
+    ctx.fillStyle = g; ctx.fillRect(-20, -20, W + 40, H + 40);
+    // sun
+    var sy = GROUND - 160; ctx.save(); ctx.beginPath(); ctx.arc(W / 2, sy, 120, Math.PI, 0); ctx.closePath(); ctx.clip();
+    var sg = ctx.createLinearGradient(0, sy - 120, 0, sy); sg.addColorStop(0, "#ffd84a"); sg.addColorStop(1, "#ff4fd8"); ctx.fillStyle = sg; ctx.fillRect(W / 2 - 120, sy - 120, 240, 120);
+    ctx.fillStyle = "#3a1a6b"; for (var s = 0; s < 6; s++) ctx.fillRect(W / 2 - 120, sy - 50 + s * 9, 240, 2 + s * 0.8);
+    ctx.restore();
+    // stars
+    ctx.fillStyle = "rgba(255,255,255,.7)"; for (var st = 0; st < 40; st++) ctx.fillRect((st * 97 - scroll * 0.05) % W + (st * 97 - scroll * 0.05 < 0 ? W : 0), (st * 61) % (H * 0.45), 1.6, 1.6);
+    // skyline
+    var x = -((scroll * 0.3) % 1300);
+    for (var i = 0; i < 48; i++) {
+      var b = skyline[i % skyline.length];
+      ctx.fillStyle = "#1a0f45"; ctx.fillRect(x, GROUND - b.h, b.w, b.h);
+      ctx.fillStyle = b.lit > 0.5 ? "rgba(69,240,255,.5)" : "rgba(255,79,216,.45)";
+      for (var wy = GROUND - b.h + 10; wy < GROUND - 10; wy += 16) if ((wy + i) % 3) ctx.fillRect(x + 6, wy, 4, 6), ctx.fillRect(x + b.w - 10, wy, 4, 6);
+      x += b.w + 6; if (x > W) break;
+    }
+    pipes.forEach(function (p) { pillar(ctx, p.x, -10, p.top, p.top); pillar(ctx, p.x, p.top + p.gap, GROUND, p.top + p.gap); });
+    // ground
+    ctx.fillStyle = "#12082e"; ctx.fillRect(0, GROUND, W, H - GROUND);
+    ctx.strokeStyle = C.pink; K.glow(ctx, C.pink, 14); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, GROUND); ctx.lineTo(W, GROUND); ctx.stroke(); K.noGlow(ctx);
+    ctx.strokeStyle = "rgba(255,79,216,.35)"; ctx.lineWidth = 1.5;
+    for (var gx = -((scroll) % 40); gx < W + 40; gx += 40) { ctx.beginPath(); ctx.moveTo(gx, GROUND); ctx.lineTo(W / 2 + (gx - W / 2) * 2.2, H); ctx.stroke(); }
+    for (var gl = 0; gl < 4; gl++) { var ly = GROUND + 10 + gl * gl * 6; ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(W, ly); ctx.stroke(); }
+    // bird
+    ctx.save(); ctx.translate(bird.x, bird.y); ctx.rotate(bird.rot);
+    K.glow(ctx, C.cyan, 18);
+    var bg = ctx.createRadialGradient(-4, -5, 2, 0, 0, bird.r + 2); bg.addColorStop(0, "#e9fcff"); bg.addColorStop(0.5, C.cyan); bg.addColorStop(1, C.blue);
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(0, 0, bird.r, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx);
+    var wing = Math.sin(t * (waiting ? 10 : 22)) * 6;
+    ctx.fillStyle = C.purple; ctx.beginPath(); ctx.moveTo(-6, 2); ctx.lineTo(-22, -4 + wing); ctx.lineTo(-8, 8); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(6, -4, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#14123a"; ctx.beginPath(); ctx.arc(8, -4, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = C.yellow; ctx.beginPath(); ctx.moveTo(13, 1); ctx.lineTo(22, 4); ctx.lineTo(13, 7); ctx.fill();
+    ctx.restore();
+    fx.draw(ctx);
+    if (K.state === "play") K.text(ctx, String(score), W / 2, 90, { size: 64, color: "#fff", align: "center", glow: 20, glowColor: C.purple });
+    if (K.state === "play" && waiting) K.text(ctx, K.isTouch ? "Tap to fly" : "Click or press Space to fly", W / 2, H * 0.58, { size: 18, color: "#fff", align: "center", family: "body", weight: 600 });
+    if (flashT > 0) { ctx.fillStyle = "rgba(255,255,255," + flashT * 0.5 + ")"; ctx.fillRect(0, 0, W, H); }
+    ctx.restore();
+  }
+  function start() { reset(); K.state = "play"; if (K.thumb) { K.thumbTime = 0.02; waiting = false; score = 17; addPipe(250); pipes[0].top = 260; addPipe(480); bird.y = 360; bird.vy = -200; bird.rot = -0.3; } }
+  K.onRestart = start;
+  reset();
+  K.menu({ title: "Sky Hopper", body: "Tap, click or press <kbd>Space</kbd> to flap through the gaps. Each pillar is a point. Ten gets you bronze, twenty-five silver and fifty gold.", onStart: start });
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

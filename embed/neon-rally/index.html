@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Neon Rally | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="neon-rally" style="--game-bg:#05061a">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var W = 800, H = 480, PH = 86, PW = 12, WIN = 7;
+  var ctx = K.canvas(W, H);
+  var fx = new K.Particles();
+  var mode = K.store.get("mode", "cpu"), diff = K.store.get("diff", "normal");
+  var DIFF = { easy: { speed: 300, react: 0.16, err: 46 }, normal: { speed: 430, react: 0.1, err: 26 }, hard: { speed: 620, react: 0.05, err: 10 } };
+  var p1, p2, ball, trail, serveT, serveDir, scoreT, winner, t = 0, rallies, cpuAim = 0, cpuT = 0;
+  var touches = {};
+
+  function reset() {
+    p1 = { y: H / 2, vy: 0, score: 0, glow: 0 }; p2 = { y: H / 2, vy: 0, score: 0, glow: 0 };
+    trail = []; serveDir = Math.random() < 0.5 ? -1 : 1; rallies = 0; winner = null; serve();
+  }
+  function serve() {
+    ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, sp: 380, r: 9 }; serveT = 1.0; trail = [];
+  }
+  function launch() { var a = K.rand(-0.45, 0.45); ball.vx = Math.cos(a) * ball.sp * serveDir; ball.vy = Math.sin(a) * ball.sp; K.sfx("select"); }
+
+  // multi-touch: left half drives player 1, right half drives player 2
+  window.addEventListener("pointerdown", function (e) { if (e.pointerType === "mouse" || K.state !== "play") return; var p = K.toLogical(e.clientX, e.clientY); touches[e.pointerId] = { side: p.x < W / 2 ? 1 : 2, y: p.y }; });
+  window.addEventListener("pointermove", function (e) {
+    var p = K.toLogical(e.clientX, e.clientY);
+    if (touches[e.pointerId]) touches[e.pointerId].y = p.y;
+    else if (e.pointerType === "mouse" && K.state === "play") { mouseY = p.y; mouseX = p.x; }
+  });
+  function endTouch(e) { delete touches[e.pointerId]; }
+  window.addEventListener("pointerup", endTouch); window.addEventListener("pointercancel", endTouch);
+  var mouseY = null, mouseX = 0;
+
+  function movePaddle(p, dir, targetY, dt) {
+    var oy = p.y;
+    if (targetY != null) p.y = K.lerp(p.y, targetY, Math.min(1, dt * 18));
+    else p.y += dir * 520 * dt;
+    p.y = K.clamp(p.y, PH / 2 + 6, H - PH / 2 - 6);
+    p.vy = (p.y - oy) / Math.max(dt, 0.001);
+  }
+
+  function update(dt) {
+    t += dt; fx.update(dt);
+    p1.glow = Math.max(0, p1.glow - dt * 3); p2.glow = Math.max(0, p2.glow - dt * 3);
+    if (K.state !== "play") { // attract mode: both paddles track the ball
+      if (!ball.vx) launch();
+      cpu(p1, dt, DIFF.normal, true); cpu(p2, dt, DIFF.normal, false); physics(dt, true); return;
+    }
+    if (winner) return;
+    // player 1
+    var t1 = null, t2 = null;
+    Object.keys(touches).forEach(function (k) { var o = touches[k]; if (o.side === 1 || mode === "cpu") t1 = o.y; else t2 = o.y; });
+    var d1 = (K.keys.KeyS ? 1 : 0) - (K.keys.KeyW ? 1 : 0), d2 = (K.keys.ArrowDown ? 1 : 0) - (K.keys.ArrowUp ? 1 : 0);
+    if (mode === "cpu") { d1 = d1 || d2; if (t1 == null && mouseY != null && !d1) t1 = mouseY; }
+    else if (mouseY != null && t1 == null && !d1 && mouseX < W / 2) t1 = mouseY;
+    if (d1) mouseY = null;
+    movePaddle(p1, d1, d1 ? null : t1, dt);
+    if (mode === "cpu") cpu(p2, dt, DIFF[diff], false);
+    else movePaddle(p2, d2, d2 ? null : t2, dt);
+
+    if (serveT > 0) { serveT -= dt; if (serveT <= 0) launch(); return; }
+    physics(dt, false);
+  }
+  function cpu(p, dt, d, left) {
+    p.cpuT = (p.cpuT || 0) - dt;
+    var coming = left ? ball.vx < 0 : ball.vx > 0;
+    if (p.cpuT <= 0) {
+      p.cpuT = d.react;
+      var target = H / 2;
+      if (coming) { // predict where the ball will cross
+        var bx = ball.x, by = ball.y, vx = ball.vx, vy = ball.vy, tx = left ? 40 : W - 40;
+        var tt = Math.abs((tx - bx) / (vx || 1)); var py = by + vy * tt;
+        var span = H - 2 * ball.r; py -= ball.r; py = ((py % (2 * span)) + 2 * span) % (2 * span); if (py > span) py = 2 * span - py; target = py + ball.r;
+      }
+      p.aim = target + K.rand(-d.err, d.err);
+    }
+    var diffY = (p.aim || H / 2) - p.y, step = d.speed * dt;
+    var oy = p.y; p.y += K.clamp(diffY, -step, step); p.y = K.clamp(p.y, PH / 2 + 6, H - PH / 2 - 6); p.vy = (p.y - oy) / Math.max(dt, 0.001);
+  }
+  function physics(dt, attract) {
+    var steps = 2, h = dt / steps;
+    for (var s = 0; s < steps; s++) {
+      ball.x += ball.vx * h; ball.y += ball.vy * h;
+      if (ball.y < ball.r) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); if (!attract) K.sfx("bounce"); }
+      if (ball.y > H - ball.r) { ball.y = H - ball.r; ball.vy = -Math.abs(ball.vy); if (!attract) K.sfx("bounce"); }
+      hitPaddle(p1, 28, 1, attract); hitPaddle(p2, W - 28, -1, attract);
+      if (ball.x < -30 || ball.x > W + 30) { point(ball.x > W, attract); return; }
+    }
+    trail.push({ x: ball.x, y: ball.y }); if (trail.length > 14) trail.shift();
+  }
+  function hitPaddle(p, px, dir, attract) {
+    var inX = dir > 0 ? (ball.x - ball.r < px + PW / 2 && ball.x > px - PW) : (ball.x + ball.r > px - PW / 2 && ball.x < px + PW);
+    if (!inX || (dir > 0 ? ball.vx >= 0 : ball.vx <= 0)) return;
+    if (Math.abs(ball.y - p.y) > PH / 2 + ball.r) return;
+    var off = (ball.y - p.y) / (PH / 2); off = K.clamp(off, -1, 1);
+    ball.sp = Math.min(920, ball.sp * 1.055);
+    var a = off * 1.0 + K.clamp(p.vy / 2000, -0.25, 0.25);
+    ball.vx = Math.cos(a) * ball.sp * dir; ball.vy = Math.sin(a) * ball.sp;
+    ball.x = px + dir * (PW / 2 + ball.r);
+    p.glow = 1; rallies++;
+    if (!attract) { K.sfx("click"); K.tone(300 + Math.min(600, ball.sp - 380), 0.06, { type: "square", vol: 0.08 }); }
+    fx.burst(ball.x, ball.y, 10, { color: dir > 0 ? [C.blue, "#fff"] : [C.purple, "#fff"], speed: 160, life: 0.4, angle: dir > 0 ? 0 : Math.PI, spread: 1.6 });
+  }
+  function point(p1Scored, attract) {
+    if (attract) { serveDir = p1Scored ? -1 : 1; ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, sp: 380, r: 9 }; return; }
+    var who = p1Scored ? p1 : p2; who.score++;
+    K.sfx("explode"); K.shake(10);
+    fx.burst(p1Scored ? W : 0, K.clamp(ball.y, 0, H), 40, { color: p1Scored ? [C.blue, C.cyan, "#fff"] : [C.purple, C.pink, "#fff"], speed: 300, life: 0.8 });
+    serveDir = p1Scored ? 1 : -1;
+    if (who.score >= WIN) { winner = p1Scored ? 1 : 2; setTimeout(finish, 900); }
+    serve();
+  }
+  function finish() {
+    var title;
+    if (mode === "cpu") title = winner === 1 ? "You win!" : "CPU wins";
+    else title = (winner === 1 ? "Blue" : "Purple") + " player wins!";
+    var html = '<div class="k-score">' + p1.score + " : " + p2.score + "</div>";
+    if (mode === "cpu" && winner === 1) { var wins = K.store.get("wins_" + diff, 0) + 1; K.store.set("wins_" + diff, wins); html += '<div class="k-best">Wins on ' + diff + ": " + wins + "</div>"; }
+    html += '<div style="height:16px"></div>';
+    K.state = "over";
+    K.screen({ title: title, html: html, button: "Rematch", onStart: start, secondary: [{ label: "Change mode", onClick: menu }], credit: false });
+  }
+
+  function paddle(ctx, x, p, col) {
+    K.glow(ctx, col, 14 + p.glow * 20); ctx.fillStyle = col;
+    K.roundRect(ctx, x - PW / 2, p.y - PH / 2, PW, PH, 6); ctx.fill(); K.noGlow(ctx);
+    ctx.fillStyle = "rgba(255,255,255," + (0.5 + p.glow * 0.5) + ")"; ctx.fillRect(x - 2, p.y - PH / 2 + 8, 4, PH - 16);
+  }
+  function draw(ctx) {
+    ctx.save(); K.applyShake(ctx, 1 / 60);
+    var g = ctx.createLinearGradient(0, 0, W, 0); g.addColorStop(0, "#071131"); g.addColorStop(0.5, "#07061c"); g.addColorStop(1, "#160a33");
+    ctx.fillStyle = g; ctx.fillRect(-20, -20, W + 40, H + 40);
+    ctx.strokeStyle = "rgba(160,170,255,.18)"; ctx.lineWidth = 3; ctx.setLineDash([12, 14]); ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(160,170,255,.1)"; ctx.beginPath(); ctx.arc(W / 2, H / 2, 70, 0, Math.PI * 2); ctx.stroke();
+    K.text(ctx, String(p1.score), W / 2 - 60, 60, { size: 64, color: "rgba(47,184,255,.55)", align: "center" });
+    K.text(ctx, String(p2.score), W / 2 + 60, 60, { size: 64, color: "rgba(166,91,255,.55)", align: "center" });
+    // trail
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    for (var i = 0; i < trail.length; i++) { var a = i / trail.length; ctx.fillStyle = "rgba(120,200,255," + a * 0.35 + ")"; ctx.beginPath(); ctx.arc(trail[i].x, trail[i].y, ball.r * a, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    paddle(ctx, 28, p1, C.blue); paddle(ctx, W - 28, p2, C.purple);
+    K.glow(ctx, "#fff", 18); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx);
+    fx.draw(ctx);
+    if (K.state === "play" && serveT > 0 && !winner) K.text(ctx, p1.score + p2.score === 0 ? "First to " + WIN : "Ready", W / 2, H / 2 + 110, { size: 20, color: "#fff", align: "center", glow: 10 });
+    if (K.state === "play" && mode === "pvp" && p1.score + p2.score === 0 && serveT > 0) {
+      K.text(ctx, "W / S", 90, H - 24, { size: 14, color: C.blue, align: "center", family: "body", weight: 600 });
+      K.text(ctx, "↑ / ↓", W - 90, H - 24, { size: 14, color: C.purple, align: "center", family: "body", weight: 600 });
+    }
+    ctx.restore();
+  }
+
+  function start() { reset(); K.state = "play"; if (K.thumb) { K.thumbTime = 0.6; p1.score = 4; p2.score = 3; serveT = 0; launch(); } }
+  function menu() {
+    K.menu({
+      title: "Neon Rally",
+      html: '<div class="k-row" role="group" aria-label="Players">' +
+        '<button type="button" class="k-chip" data-mode="cpu">1 player</button><button type="button" class="k-chip" data-mode="pvp">2 players</button></div>' +
+        '<div class="k-row" role="group" aria-label="Difficulty" data-diffs>' +
+        '<button type="button" class="k-chip" data-diff="easy">Easy</button><button type="button" class="k-chip" data-diff="normal">Normal</button><button type="button" class="k-chip" data-diff="hard">Hard</button></div>',
+      body: "First to 7 wins. Player 1 uses <kbd>W</kbd> <kbd>S</kbd> or the mouse, player 2 uses <kbd>↑</kbd> <kbd>↓</kbd>. On a phone or tablet, each player drags on their own half of the screen.",
+      onStart: start,
+      onShow: function (el) {
+        function sync() {
+          Array.prototype.forEach.call(el.querySelectorAll("[data-mode]"), function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-mode") === mode)); });
+          Array.prototype.forEach.call(el.querySelectorAll("[data-diff]"), function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-diff") === diff)); });
+          el.querySelector("[data-diffs]").style.display = mode === "cpu" ? "" : "none";
+        }
+        Array.prototype.forEach.call(el.querySelectorAll("[data-mode]"), function (b) { b.addEventListener("click", function () { mode = b.getAttribute("data-mode"); K.store.set("mode", mode); K.sfx("click"); sync(); }); });
+        Array.prototype.forEach.call(el.querySelectorAll("[data-diff]"), function (b) { b.addEventListener("click", function () { diff = b.getAttribute("data-diff"); K.store.set("diff", diff); K.sfx("click"); sync(); }); });
+        sync();
+      }
+    });
+  }
+  K.onRestart = start;
+  reset();
+  menu();
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

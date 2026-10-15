@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Neon Drift | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="neon-drift" style="--game-bg:#071a12">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var ctx = K.canvas(800, 500, { fill: { minW: 560, maxW: 1000 } });
+  var fx = new K.Particles();
+  var touch = K.buttons([{ id: "left", icon: "left", side: "left", aria: "Steer left" }, { id: "right", icon: "right", side: "left", aria: "Steer right" },
+    { id: "brake", icon: "down", side: "right", aria: "Brake" }, { id: "drift", label: "DRIFT", side: "right", size: 80, aria: "Drift" }]);
+  var LAPS = 3, TW = 150;
+  var CTRL = [[320, 900], [420, 420], [900, 260], [1400, 470], [1720, 260], [2220, 360], [2380, 820], [2020, 1100], [2260, 1460], [1800, 1640], [1300, 1360], [880, 1620], [450, 1460]];
+  var track = [];
+  (function build() {
+    var n = CTRL.length, per = 46;
+    for (var i = 0; i < n; i++) {
+      var p0 = CTRL[(i - 1 + n) % n], p1 = CTRL[i], p2 = CTRL[(i + 1) % n], p3 = CTRL[(i + 2) % n];
+      for (var s = 0; s < per; s++) {
+        var t = s / per, t2 = t * t, t3 = t2 * t;
+        track.push({ x: 0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+          y: 0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3) });
+      }
+    }
+    var N = track.length;
+    track.forEach(function (p, i) { var a = track[(i + 1) % N], b = track[(i - 1 + N) % N]; p.ang = Math.atan2(a.y - b.y, a.x - b.x); });
+    track.forEach(function (p, i) { var a = track[(i + 6) % N].ang, d = Math.atan2(Math.sin(a - p.ang), Math.cos(a - p.ang)); p.curve = Math.abs(d); });
+  })();
+  var N = track.length;
+  var trackPath = new Path2D(); track.forEach(function (p, i) { if (i) trackPath.lineTo(p.x, p.y); else trackPath.moveTo(p.x, p.y); }); trackPath.closePath();
+
+  var cars, me, raceT, countdown, finished, results, t = 0, cam = { x: 0, y: 0 }, skids = [];
+  var COLS = [C.blue, C.pink, C.yellow, C.green];
+
+  function nearest(car) {
+    var best = car.idx, bd = Infinity;
+    for (var k = -25; k <= 25; k++) { var i = (car.idx + k + N) % N, p = track[i], d = (p.x - car.x) * (p.x - car.x) + (p.y - car.y) * (p.y - car.y); if (d < bd) { bd = d; best = i; } }
+    return { i: best, d: Math.sqrt(bd) };
+  }
+  function makeCar(slot, ai) {
+    var s = track[(N - 6 - Math.floor(slot / 2) * 7) % N], perp = s.ang + Math.PI / 2, off = (slot % 2 ? 1 : -1) * 34;
+    return { x: s.x + Math.cos(perp) * off, y: s.y + Math.sin(perp) * off, a: s.ang, vx: 0, vy: 0, sp: 0, idx: (N - 6 - Math.floor(slot / 2) * 7) % N, lap: 0, prog: 0, cp: 0,
+      ai: ai, col: COLS[slot], skill: ai ? K.rand(0.86, 0.97) : 1, lane: K.rand(-30, 30), lapStart: 0, best: null, done: false, finishT: 0, name: ai ? ["Volt", "Nova", "Rex"][slot - 1] : "You", drifting: false };
+  }
+  function reset() {
+    cars = [makeCar(0, false), makeCar(1, true), makeCar(2, true), makeCar(3, true)];
+    me = cars[0]; raceT = 0; countdown = 3.2; finished = false; results = null; skids = []; fx.clear();
+    cars.forEach(function (c) { c.lastIdx = c.idx; c.lap = 0; c.prog = -((N - c.idx) % N); });
+  }
+
+  function drive(c, dt, gas, brake, steer, drift) {
+    var onRoad = nearest(c); c.idx = onRoad.i;
+    var off = onRoad.d > TW / 2 + 6, maxSp = (off ? 170 : 470) * (c.ai ? c.skill : 1);
+    var fwdX = Math.cos(c.a), fwdY = Math.sin(c.a);
+    var fwd = c.vx * fwdX + c.vy * fwdY, lat = -c.vx * fwdY + c.vy * fwdX;
+    if (gas) fwd += 330 * dt; if (brake) fwd -= (fwd > 0 ? 520 : 220) * dt;
+    if (!gas && !brake) fwd *= Math.pow(0.55, dt);
+    fwd = K.clamp(fwd, -140, maxSp);
+    if (fwd > maxSp) fwd = maxSp;
+    if (off && Math.abs(fwd) > 170) fwd *= Math.pow(0.2, dt);
+    var turn = steer * (2.5 + (drift ? 1.1 : 0)) * K.clamp(Math.abs(fwd) / 220, 0, 1) * (fwd < 0 ? -1 : 1);
+    c.a += turn * dt;
+    var grip = drift ? 2.2 : (off ? 5 : 9);
+    lat *= Math.pow(Math.exp(-grip), dt);
+    fwdX = Math.cos(c.a); fwdY = Math.sin(c.a);
+    c.vx = fwdX * fwd - fwdY * lat; c.vy = fwdY * fwd + fwdX * lat;
+    c.x += c.vx * dt; c.y += c.vy * dt; c.sp = fwd; c.drifting = Math.abs(lat) > 60;
+    if (c.drifting && Math.random() < 0.6) skids.push({ x: c.x - fwdX * 14, y: c.y - fwdY * 14, life: 2.5 });
+    if (off && Math.abs(fwd) > 60 && Math.random() < 0.4) fx.burst(c.x, c.y, 1, { color: ["#3dffa8", "#1a6b4a"], speed: 40, life: 0.4 });
+    // lap counting with checkpoints
+    var prevIdx = c.lastIdx; c.lastIdx = c.idx;
+    var delta = c.idx - prevIdx; if (delta < -N / 2) delta += N; if (delta > N / 2) delta -= N;
+    c.prog += delta;
+    if (c.prog >= N) { c.prog -= N; c.lap++; onLap(c); }
+  }
+  function onLap(c) {
+    var lt = raceT - c.lapStart; c.lapStart = raceT;
+    if (c.lap >= 1 && (c.best == null || lt < c.best)) c.best = lt;
+    if (c === me && c.lap < LAPS && c.lap > 0) { K.toast("Lap " + (c.lap + 1) + " of " + LAPS + "  (" + lt.toFixed(2) + "s)"); K.sfx("select"); }
+    if (c.lap >= LAPS && !c.done) { c.done = true; c.finishT = raceT; if (c === me) finish(); }
+  }
+  function position(c) { var score = function (x) { return x.done ? 1e9 - x.finishT : x.lap * N + x.prog; }; var s = score(c); return 1 + cars.filter(function (o) { return o !== c && score(o) > s; }).length; }
+  function finish() {
+    finished = true; var pos = position(me); K.sfx(pos === 1 ? "win" : "power");
+    setTimeout(function () {
+      var key = "best", b = K.store.get(key, null), isNew = b == null || me.finishT < b; if (isNew) K.store.set(key, me.finishT);
+      var suf = ["st", "nd", "rd", "th"][pos - 1];
+      K.state = "over";
+      K.screen({ title: pos === 1 ? "You won the race!" : "Finished " + pos + suf, html: '<div class="k-score-label">Race time</div><div class="k-score">' + me.finishT.toFixed(2) + "s</div>" + (isNew ? '<div class="k-new">New best time!</div>' : '<div class="k-best">Best: ' + b.toFixed(2) + "s</div>") + '<div class="k-best">Best lap ' + (me.best ? me.best.toFixed(2) + "s" : "-") + '</div><div style="height:16px"></div>', button: "Race again", onStart: start, credit: false });
+    }, 1400);
+  }
+
+  function update(dt) {
+    t += dt; fx.update(dt);
+    skids.forEach(function (s) { s.life -= dt; }); if (skids.length > 600) skids.splice(0, skids.length - 600); skids = skids.filter(function (s) { return s.life > 0; });
+    if (K.state !== "play") { cam.x = K.lerp(cam.x, track[Math.floor(t * 20) % N].x - K.W / 2, dt * 2); cam.y = K.lerp(cam.y, track[Math.floor(t * 20) % N].y - K.H / 2, dt * 2); return; }
+    if (countdown > 0) { var before = Math.ceil(countdown); countdown -= dt; if (Math.ceil(countdown) !== before && countdown > 0) K.tone(440, 0.12, { type: "square", vol: 0.12 }); if (countdown <= 0) K.tone(880, 0.3, { type: "square", vol: 0.14 }); }
+    else raceT += dt;
+    var go = countdown <= 0;
+    cars.forEach(function (c) {
+      if (c.ai) {
+        var look = 14 + Math.floor(Math.abs(c.sp) / 40), tp = track[(c.idx + look) % N], perp = tp.ang + Math.PI / 2;
+        var tx = tp.x + Math.cos(perp) * c.lane, ty = tp.y + Math.sin(perp) * c.lane;
+        var want = Math.atan2(ty - c.y, tx - c.x), diff = Math.atan2(Math.sin(want - c.a), Math.cos(want - c.a));
+        var curve = 0; for (var k = 4; k < 30; k += 4) curve = Math.max(curve, track[(c.idx + k) % N].curve);
+        var limit = (470 - curve * 520) * c.skill;
+        drive(c, dt, go && c.sp < limit && !c.done, go && c.sp > limit + 40, K.clamp(diff * 2.4, -1, 1), false);
+        if (c.done) { c.vx *= Math.pow(0.4, dt); c.vy *= Math.pow(0.4, dt); }
+      } else {
+        var gas = go && !c.done && (K.held("up") || (K.isTouch && !touch.brake)), brake = K.held("down") || touch.brake;
+        var steer = (K.held("right") || touch.right ? 1 : 0) - (K.held("left") || touch.left ? 1 : 0);
+        drive(c, dt, gas, go && brake, steer, K.keys.Space || K.keys.ShiftLeft || touch.drift);
+        if (!go) { c.vx = c.vy = 0; }
+        if (c.done) { c.vx *= Math.pow(0.4, dt); c.vy *= Math.pow(0.4, dt); }
+      }
+    });
+    // car bumps
+    for (var i = 0; i < cars.length; i++) for (var j = i + 1; j < cars.length; j++) {
+      var a = cars[i], b = cars[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+      if (d < 30 && d > 0) { var push = (30 - d) / 2, nx = dx / d, ny = dy / d; a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push; a.vx -= nx * 30; a.vy -= ny * 30; b.vx += nx * 30; b.vy += ny * 30; if ((a === me || b === me) && Math.random() < 0.3) K.sfx("bounce"); }
+    }
+    var lead = 0.22;
+    cam.x = K.lerp(cam.x, me.x + me.vx * lead - K.W / 2, Math.min(1, dt * 5)); cam.y = K.lerp(cam.y, me.y + me.vy * lead - K.H / 2, Math.min(1, dt * 5));
+  }
+
+  function drawCar(ctx, c) {
+    ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a);
+    ctx.fillStyle = "rgba(0,0,0,.4)"; K.roundRect(ctx, -15, -8, 32, 19, 6); ctx.fill();
+    K.glow(ctx, c.col, 14); ctx.fillStyle = c.col; K.roundRect(ctx, -16, -10, 32, 20, 6); ctx.fill(); K.noGlow(ctx);
+    ctx.fillStyle = "rgba(8,10,30,.85)"; K.roundRect(ctx, -4, -7, 11, 14, 3); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.fillRect(13, -8, 3, 4); ctx.fillRect(13, 4, 3, 4);
+    ctx.fillStyle = "#ff3355"; ctx.fillRect(-16, -8, 2, 4); ctx.fillRect(-16, 4, 2, 4);
+    ctx.restore();
+  }
+  function draw(ctx) {
+    var W = K.W, H = K.H;
+    ctx.fillStyle = "#07160f"; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.translate(-Math.round(cam.x), -Math.round(cam.y));
+    // ground pattern
+    ctx.fillStyle = "rgba(61,255,168,.05)";
+    var gx0 = Math.floor(cam.x / 80) * 80, gy0 = Math.floor(cam.y / 80) * 80;
+    for (var x = gx0; x < cam.x + W + 80; x += 80) for (var y = gy0; y < cam.y + H + 80; y += 80) if (((x + y) / 80) % 2 === 0) ctx.fillRect(x, y, 80, 80);
+    // track
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.strokeStyle = "#ff4fd8"; ctx.lineWidth = TW + 16; ctx.setLineDash([22, 22]); ctx.stroke(trackPath);
+    ctx.strokeStyle = "#ffffff"; ctx.lineDashOffset = 22; ctx.stroke(trackPath); ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    ctx.strokeStyle = "#16173a"; ctx.lineWidth = TW; ctx.stroke(trackPath);
+    ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = 3; ctx.setLineDash([30, 30]); ctx.stroke(trackPath); ctx.setLineDash([]);
+    // start line
+    var s0 = track[0]; ctx.save(); ctx.translate(s0.x, s0.y); ctx.rotate(s0.ang);
+    for (var r = 0; r < 10; r++) for (var cc = 0; cc < 2; cc++) { ctx.fillStyle = (r + cc) % 2 ? "#fff" : "#111"; ctx.fillRect(-6 + cc * 6, -TW / 2 + r * TW / 10, 6, TW / 10); }
+    ctx.restore();
+    // skids
+    ctx.fillStyle = "rgba(0,0,0,.35)"; skids.forEach(function (s) { ctx.globalAlpha = Math.min(1, s.life) * 0.5; ctx.fillRect(s.x - 2, s.y - 2, 4, 4); }); ctx.globalAlpha = 1;
+    fx.draw(ctx);
+    cars.slice().sort(function (a, b) { return a === me ? 1 : b === me ? -1 : 0; }).forEach(function (c) { drawCar(ctx, c); });
+    ctx.restore();
+    // minimap
+    var mw = 150, mh = 104, mx = W - mw - 12, my = H - mh - 12, sc = Math.min(mw / 2600, mh / 1800);
+    ctx.fillStyle = "rgba(6,8,24,.7)"; K.roundRect(ctx, mx - 6, my - 6, mw + 12, mh + 12, 8); ctx.fill();
+    ctx.save(); ctx.translate(mx, my); ctx.scale(sc, sc); ctx.strokeStyle = "rgba(200,210,255,.5)"; ctx.lineWidth = 3 / sc * 0.9; ctx.stroke(trackPath);
+    cars.forEach(function (c) { ctx.fillStyle = c.col; ctx.beginPath(); ctx.arc(c.x, c.y, (c === me ? 5 : 3.5) / sc, 0, Math.PI * 2); ctx.fill(); });
+    ctx.restore();
+    // HUD
+    if (K.state === "play") {
+      var pos = position(me);
+      K.text(ctx, pos + ["st", "nd", "rd", "th"][pos - 1], 16, 30, { size: 30, color: "#fff", glow: 12, glowColor: me.col });
+      K.text(ctx, "Lap " + Math.min(LAPS, me.lap + 1) + " / " + LAPS, 16, 60, { size: 15, color: C.muted });
+      K.text(ctx, raceT.toFixed(1) + "s", 120, 30, { size: 18, color: "#fff" });
+      K.text(ctx, Math.round(Math.abs(me.sp) / 3) + " km/h", 16, H - 24, { size: 18, color: C.cyan });
+      if (me.drifting) K.text(ctx, "Drift!", 130, H - 24, { size: 16, color: C.pink });
+      if (countdown > 0) K.text(ctx, String(Math.ceil(countdown)), W / 2, H / 2 - 40, { size: 80, color: "#fff", align: "center", glow: 24, glowColor: C.purple });
+      else if (raceT < 0.8) K.text(ctx, "GO!", W / 2, H / 2 - 40, { size: 80, color: C.green, align: "center", glow: 24, glowColor: C.green });
+      if (raceT < 6 && countdown <= 0) K.text(ctx, K.isTouch ? "You speed up by yourself. Steer with ◀ ▶" : "↑ to drive, ← → to steer, Space to drift", W / 2, 90, { size: 15, color: "#fff", align: "center", family: "body", weight: 600 });
+    }
+  }
+  function start() {
+    reset(); K.state = "play";
+    if (K.thumb) {
+      K.thumbTime = 0.01; countdown = 0; raceT = 42.6;
+      [[60, -20], [52, 30], [70, 10], [58, -40]].forEach(function (o, i) { var c = cars[i], p = track[o[0] + i * 3]; c.idx = o[0] + i * 3; c.x = p.x + o[1]; c.y = p.y + o[1] * 0.4; c.a = p.ang + (i === 0 ? 0.35 : 0); c.sp = 380; c.vx = Math.cos(c.a) * 380; c.vy = Math.sin(c.a) * 380; c.drifting = i === 0; });
+      me.lap = 1; for (var k = 0; k < 30; k++) skids.push({ x: me.x - Math.cos(me.a) * (20 + k * 4), y: me.y - Math.sin(me.a) * (20 + k * 4) + Math.sin(k * 0.3) * 4, life: 2 });
+      cam.x = me.x - K.W / 2; cam.y = me.y - K.H / 2;
+    }
+  }
+  K.onRestart = start;
+  reset(); cam.x = track[0].x - K.W / 2; cam.y = track[0].y - K.H / 2;
+  K.menu({ title: "Neon Drift", body: "Race three rivals over 3 laps. <kbd>↑</kbd> to drive, <kbd>↓</kbd> to brake, <kbd>←</kbd> <kbd>→</kbd> to steer and hold <kbd>Space</kbd> to drift round tight corners. Stay on the track: the grass slows you down.", button: "Start race", onStart: start });
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

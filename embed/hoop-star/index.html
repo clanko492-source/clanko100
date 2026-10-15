@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Hoop Star | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="hoop-star" style="--game-bg:#0a0820">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var W = 800, H = 500, FLOOR = 452, R = 15, G = 980;
+  var ctx = K.canvas(W, H);
+  var fx = new K.Particles();
+  var hoop, ball, drag, score, timeLeft, streak, made, shots, msg, msgT, t = 0, netT = 0, ending;
+
+  function placeHoop() {
+    var y = score >= 20 ? K.rand(160, 270) : 220;
+    hoop = { x1: 636, x2: 700, y: y, board: { x: 716, y1: y - 92, y2: y + 40 } };
+  }
+  function newBall() {
+    var minX = 70, maxX = score >= 10 ? 470 : 380;
+    ball = { x: K.rand(minX, maxX), y: FLOOR - R - K.rand(0, score >= 30 ? 120 : 40), vx: 0, vy: 0, live: false, touched: false, scored: false, t: 0, rot: 0 };
+    ball.hx = ball.x; ball.hy = ball.y;
+  }
+  function reset() { score = 0; timeLeft = 60; streak = 0; made = 0; shots = 0; msgT = 0; ending = false; placeHoop(); newBall(); fx.clear(); }
+
+  K.on("down", function (p) {
+    if (K.state !== "play" || ball.live || ending) return;
+    if (K.dist(p.x, p.y, ball.x, ball.y) < 110) drag = { x: p.x, y: p.y };
+  });
+  K.on("move", function (p) { if (drag) { drag.cx = p.x; drag.cy = p.y; } });
+  K.on("up", function (p) {
+    if (!drag) return;
+    var dx = drag.x - p.x, dy = drag.y - p.y, m = Math.hypot(dx, dy);
+    drag = null;
+    if (m < 15) return;
+    var v = launchVel(dx, dy);
+    ball.vx = v.x; ball.vy = v.y; ball.live = true; shots++; K.sfx("jump");
+  });
+  function launchVel(dx, dy) { var k = 4.6, vx = dx * k, vy = dy * k, m = Math.hypot(vx, vy), max = 1150; if (m > max) { vx *= max / m; vy *= max / m; } return { x: vx, y: vy }; }
+
+  function rimHit(px, py) {
+    var dx = ball.x - px, dy = ball.y - py, d = Math.hypot(dx, dy);
+    if (d < R + 3 && d > 0) {
+      var nx = dx / d, ny = dy / d, vn = ball.vx * nx + ball.vy * ny;
+      ball.x = px + nx * (R + 3); ball.y = py + ny * (R + 3);
+      if (vn < 0) { ball.vx -= 1.6 * vn * nx; ball.vy -= 1.6 * vn * ny; ball.vx *= 0.92; ball.vy *= 0.92; }
+      if (!ball.touched || Math.abs(vn) > 60) K.sfx("bounce");
+      ball.touched = true;
+    }
+  }
+  function update(dt) {
+    t += dt; fx.update(dt); netT = Math.max(0, netT - dt);
+    if (msgT > 0) msgT -= dt;
+    if (K.state !== "play") return;
+    if (!ending) { timeLeft -= dt; if (timeLeft <= 0) { timeLeft = 0; ending = true; } }
+    if (ending && !ball.live) {
+      K.over({ title: "Time!", score: score, label: "Points", extra: '<div class="k-best">' + made + " of " + shots + " shots made</div>", onRestart: start });
+      return;
+    }
+    if (!ball.live) return;
+    var steps = 3, h = dt / steps;
+    for (var s = 0; s < steps; s++) {
+      var py = ball.y;
+      ball.vy += G * h; ball.x += ball.vx * h; ball.y += ball.vy * h; ball.rot += ball.vx * h * 0.03;
+      rimHit(hoop.x1, hoop.y); rimHit(hoop.x2, hoop.y);
+      var b = hoop.board;
+      if (ball.x + R > b.x && ball.x < b.x + 14 && ball.y > b.y1 && ball.y < b.y2 && ball.vx > 0) { ball.x = b.x - R; ball.vx *= -0.55; ball.touched = true; K.sfx("bounce"); }
+      if (ball.y + R > FLOOR) { ball.y = FLOOR - R; if (ball.vy > 120) K.sfx("thud"); ball.vy *= -0.58; ball.vx *= 0.8; }
+      if (!ball.scored && py < hoop.y && ball.y >= hoop.y && ball.x > hoop.x1 + 2 && ball.x < hoop.x2 - 2 && ball.vy > 0) {
+        ball.scored = true; made++; streak++;
+        var pts = ball.touched ? 2 : 3, mult = streak >= 6 ? 3 : streak >= 3 ? 2 : 1;
+        score += pts * mult; netT = 0.5;
+        msg = (ball.touched ? "Bucket! +" : "Swish! +") + pts * mult + (mult > 1 ? "  (x" + mult + " streak)" : ""); msgT = 1.4;
+        if (!ball.touched) timeLeft += 2;
+        K.sfx(ball.touched ? "coin" : "power");
+        fx.burst((hoop.x1 + hoop.x2) / 2, hoop.y + 20, 30, { color: [C.yellow, C.orange, "#fff"], speed: 220, life: 0.7, gravity: 400 });
+      }
+    }
+    ball.t += dt;
+    var out = ball.x < -40 || ball.x > W + 40, rest = Math.abs(ball.vy) < 30 && ball.y >= FLOOR - R - 1 && Math.abs(ball.vx) < 25;
+    if (out || rest || ball.t > 4.5 || (ball.scored && ball.t > 0.9 && ball.y > hoop.y + 70)) {
+      if (!ball.scored) { if (streak >= 3) { msg = "Streak lost"; msgT = 1; } streak = 0; }
+      else if (score >= 20) placeHoop();
+      newBall();
+    }
+  }
+
+  function draw(ctx) {
+    // arena
+    var g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#171041"); g.addColorStop(1, "#0b0a24");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(166,91,255,.08)"; for (var i = 0; i < 9; i++) ctx.fillRect(i * 100 + 20, 0, 50, FLOOR);
+    var lg = ctx.createRadialGradient(W * 0.75, 0, 10, W * 0.75, 0, 420); lg.addColorStop(0, "rgba(47,184,255,.22)"); lg.addColorStop(1, "rgba(47,184,255,0)");
+    ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H);
+    // floor
+    var fg = ctx.createLinearGradient(0, FLOOR, 0, H); fg.addColorStop(0, "#3a2160"); fg.addColorStop(1, "#1a1036");
+    ctx.fillStyle = fg; ctx.fillRect(0, FLOOR, W, H - FLOOR);
+    ctx.strokeStyle = C.purple; K.glow(ctx, C.purple, 10); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, FLOOR); ctx.lineTo(W, FLOOR); ctx.stroke(); K.noGlow(ctx);
+    ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.beginPath(); ctx.ellipse(W - 60, FLOOR + 22, 260, 22, 0, Math.PI * 0.5, Math.PI * 1.5); ctx.stroke();
+
+    // backboard & pole
+    var b = hoop.board;
+    ctx.fillStyle = "#2b2b55"; ctx.fillRect(b.x + 14, b.y1 + 40, 10, FLOOR - b.y1 - 40);
+    ctx.fillStyle = "rgba(200,230,255,.12)"; ctx.fillRect(b.x, b.y1, 14, b.y2 - b.y1);
+    ctx.strokeStyle = C.cyan; K.glow(ctx, C.cyan, 12); ctx.lineWidth = 3; ctx.strokeRect(b.x, b.y1, 14, b.y2 - b.y1); K.noGlow(ctx);
+
+    // ball behind net? draw net after ball for depth
+    var bl = ball;
+    // trajectory preview
+    if (drag && drag.cx != null) {
+      var v = launchVel(drag.x - drag.cx, drag.y - drag.cy), sx = bl.x, sy = bl.y, svx = v.x, svy = v.y;
+      for (var d = 0; d < 16; d++) { for (var k = 0; k < 3; k++) { svy += G * 0.014; sx += svx * 0.014; sy += svy * 0.014; } ctx.fillStyle = "rgba(255,255,255," + (0.8 - d * 0.045) + ")"; ctx.beginPath(); ctx.arc(sx, sy, 3.2 - d * 0.12, 0, Math.PI * 2); ctx.fill(); }
+      ctx.strokeStyle = "rgba(47,184,255,.6)"; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(bl.x, bl.y); ctx.lineTo(drag.cx, drag.cy); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // shadow
+    ctx.fillStyle = "rgba(0,0,0,.35)"; var sh = K.clamp(1 - (FLOOR - bl.y) / 400, 0.2, 1);
+    ctx.beginPath(); ctx.ellipse(bl.x, FLOOR + 4, R * sh * 1.2, 4 * sh, 0, 0, Math.PI * 2); ctx.fill();
+    // ball
+    ctx.save(); ctx.translate(bl.x, bl.y); ctx.rotate(bl.rot);
+    K.glow(ctx, C.orange, 16); ctx.fillStyle = "#ff8a3d"; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx);
+    ctx.strokeStyle = "#5a2208"; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(-R, 0); ctx.lineTo(R, 0); ctx.moveTo(0, -R); ctx.lineTo(0, R); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-R * 1.2, 0, R * 0.95, -0.7, 0.7); ctx.stroke(); ctx.beginPath(); ctx.arc(R * 1.2, 0, R * 0.95, Math.PI - 0.7, Math.PI + 0.7); ctx.stroke();
+    ctx.restore();
+    if (!bl.live && !drag && K.state === "play") { ctx.strokeStyle = "rgba(255,255,255," + (0.3 + Math.sin(t * 5) * 0.2) + ")"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bl.x, bl.y, R + 10 + Math.sin(t * 5) * 3, 0, Math.PI * 2); ctx.stroke(); }
+
+    // rim + net
+    var sw = netT > 0 ? Math.sin(netT * 30) * 4 * netT : 0;
+    ctx.strokeStyle = "rgba(230,235,255,.75)"; ctx.lineWidth = 1.5;
+    for (var n = 0; n <= 6; n++) { var nx = hoop.x1 + (hoop.x2 - hoop.x1) * n / 6, bx = hoop.x1 + 10 + (hoop.x2 - hoop.x1 - 20) * n / 6; ctx.beginPath(); ctx.moveTo(nx, hoop.y); ctx.lineTo(bx + sw, hoop.y + 44); ctx.stroke(); }
+    for (var r = 1; r <= 3; r++) { var yy = hoop.y + r * 14, inset = r * 3.5; ctx.beginPath(); ctx.moveTo(hoop.x1 + inset + sw * r / 3, yy); ctx.lineTo(hoop.x2 - inset + sw * r / 3, yy); ctx.stroke(); }
+    ctx.strokeStyle = C.orange; K.glow(ctx, C.orange, 14); ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(hoop.x1, hoop.y); ctx.lineTo(b.x, hoop.y); ctx.stroke(); K.noGlow(ctx);
+    fx.draw(ctx);
+
+    // HUD
+    K.text(ctx, String(score), 20, 30, { size: 34, color: "#fff", glow: 12, glowColor: C.blue });
+    K.text(ctx, "points", 20, 58, { size: 12, color: C.muted, family: "body", weight: 600 });
+    K.text(ctx, K.time(Math.ceil(timeLeft)), W / 2, 30, { size: 30, color: timeLeft < 10 ? C.red : "#fff", align: "center", glow: 10, glowColor: timeLeft < 10 ? C.red : C.purple });
+    if (streak >= 2) K.text(ctx, streak + " in a row", W / 2, 58, { size: 13, color: C.yellow, align: "center", family: "body", weight: 600 });
+    if (msgT > 0) { ctx.globalAlpha = Math.min(1, msgT * 2); K.text(ctx, msg, W / 2, 140, { size: 30, color: "#fff", align: "center", glow: 18, glowColor: C.orange }); ctx.globalAlpha = 1; }
+    if (K.state === "play" && shots === 0 && !drag) K.text(ctx, "Drag back from the ball and let go", bl.x + 30, bl.y - 50, { size: 14, color: "#fff", family: "body", weight: 600 });
+  }
+
+  function start() {
+    reset(); K.state = "play";
+    if (K.thumb) {
+      K.thumbTime = 0.01; shots = 1; score = 14; streak = 3; timeLeft = 37;
+      ball.x = 560; ball.y = 150; ball.live = true; ball.vx = 0; ball.vy = 0; netT = 0;
+      msg = "Swish! +6  (x2 streak)"; msgT = 1;
+    }
+  }
+  K.onRestart = start;
+  reset();
+  K.menu({
+    title: "Hoop Star",
+    body: "Drag back from the ball and release to shoot. Swishes are worth 3 and add 2 seconds. Make 3 in a row to double your points. You have 60 seconds.",
+    onStart: start
+  });
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

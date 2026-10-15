@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Turbo Lanes | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="turbo-lanes" style="--game-bg:#05050f">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var W = 480, H = 720;
+  var ctx = K.canvas(W, H);
+  var fx = new K.Particles();
+  var ROAD_L = 70, ROAD_R = W - 70, LANES = 4, LW = (ROAD_R - ROAD_L) / LANES;
+  var laneX = function (i) { return ROAD_L + LW * (i + 0.5); };
+  var COLORS = ["#ff4fd8", "#ffd84a", "#3dffa8", "#ff9a3d", "#ff4b6e", "#c9b6ff", "#45f0ff"];
+
+  var car, traffic, coins, cans, speed, dist, coinCount, scroll, rowT, nitro, boosting, crashed, crashT, nearMsgT, nearMsg, t = 0, bonus;
+  var touch = K.buttons([{ id: "left", icon: "left", side: "left", aria: "Steer left" }, { id: "right", icon: "right", side: "left", aria: "Steer right" }, { id: "nitro", label: "NITRO", side: "right", size: 84, aria: "Nitro boost" }]);
+
+  function reset() {
+    car = { x: laneX(1.5), y: H - 130, vx: 0, w: 40, h: 72, tilt: 0 };
+    traffic = []; coins = []; cans = []; speed = 320; dist = 0; coinCount = 0; scroll = 0; rowT = 300; nitro = 0.5; boosting = false;
+    crashed = false; crashT = 0; nearMsgT = 0; nearMsg = ""; bonus = 0; fx.clear();
+  }
+  function spawnRow() {
+    var lanes = K.shuffle([0, 1, 2, 3]);
+    var n = Math.random() < Math.min(0.55, 0.15 + dist / 20000) ? 2 : 1;
+    if (dist > 6000 && Math.random() < 0.15) n = 3;
+    for (var i = 0; i < n; i++) {
+      var ln = lanes[i];
+      traffic.push({ lane: ln, x: laneX(ln), y: -90 - Math.random() * 40, w: 40, h: 70 + (Math.random() < 0.2 ? 30 : 0), v: K.rand(0.35, 0.6), col: K.pick(COLORS), near: false, shift: 0, target: ln, blink: 0 });
+    }
+    var free = lanes.slice(n);
+    if (free.length && Math.random() < 0.6) { var fl = K.pick(free); for (var k = 0; k < 4; k++) coins.push({ x: laneX(fl), y: -60 - k * 46 }); }
+    else if (free.length && Math.random() < 0.18) cans.push({ x: laneX(K.pick(free)), y: -70 });
+  }
+  function laneBusy(ln, y, self) {
+    for (var i = 0; i < traffic.length; i++) { var o = traffic[i]; if (o !== self && (o.lane === ln || o.target === ln) && Math.abs(o.y - y) < 170) return true; }
+    return false;
+  }
+  function crash() {
+    if (crashed) return;
+    crashed = true; crashT = 1.3; K.sfx("explode"); K.shake(16);
+    fx.burst(car.x, car.y, 70, { color: [C.orange, C.yellow, C.pink, "#fff"], speed: 300, life: 1, size: 4 });
+  }
+
+  function update(dt) {
+    t += dt; fx.update(dt);
+    var sp = K.state === "play" && !crashed ? speed * (boosting ? 1.65 : 1) : (K.state === "play" ? 0 : 160);
+    scroll = (scroll + sp * dt) % 80;
+    if (K.state !== "play") return;
+    if (crashed) { crashT -= dt; if (crashT <= 0) { var sc = Math.floor(dist / 10) + coinCount * 25 + bonus; K.over({ score: sc, extra: '<div class="k-best">' + Math.floor(dist / 10) + " m driven, " + coinCount + " coins</div>", onRestart: start }); } return; }
+
+    speed = Math.min(900, speed + dt * 9);
+    dist += sp * dt;
+    // steering
+    var dir = (K.held("right") || touch.right ? 1 : 0) - (K.held("left") || touch.left ? 1 : 0);
+    car.vx += dir * 2600 * dt; car.vx *= Math.pow(0.0009, dt); car.vx = K.clamp(car.vx, -430, 430);
+    car.x += car.vx * dt; car.tilt = car.vx / 430 * 0.18;
+    if (car.x < ROAD_L + car.w / 2 + 4) { car.x = ROAD_L + car.w / 2 + 4; car.vx = Math.abs(car.vx) * 0.3; K.shake(3); }
+    if (car.x > ROAD_R - car.w / 2 - 4) { car.x = ROAD_R - car.w / 2 - 4; car.vx = -Math.abs(car.vx) * 0.3; K.shake(3); }
+    // nitro
+    var want = K.held("up") || K.keys.Space || K.keys.ShiftLeft || touch.nitro;
+    boosting = want && nitro > 0;
+    if (boosting) { nitro = Math.max(0, nitro - dt * 0.28); fx.burst(car.x + K.rand(-10, 10), car.y + 38, 2, { color: [C.cyan, C.blue], speed: 120, angle: Math.PI / 2, spread: 0.6, life: 0.3 }); }
+
+    rowT -= sp * dt;
+    if (rowT <= 0) { spawnRow(); rowT = K.rand(200, 300) * (1 - Math.min(0.35, dist / 40000)); }
+
+    for (var i = traffic.length - 1; i >= 0; i--) {
+      var o = traffic[i];
+      o.y += sp * (1 - o.v) * dt;
+      if (o.blink > 0) { o.blink -= dt; if (o.blink <= 0) o.lane = o.target; }
+      if (o.lane === o.target && o.y > 0 && o.y < H * 0.45 && dist > 2500 && Math.random() < dt * 0.25) {
+        var nl = o.lane + (Math.random() < 0.5 ? -1 : 1);
+        if (nl >= 0 && nl < LANES && !laneBusy(nl, o.y, o)) { o.target = nl; o.blink = 0.9; }
+      }
+      if (o.blink <= 0) o.x = K.lerp(o.x, laneX(o.lane), Math.min(1, dt * 3));
+      if (o.y > H + 120) { traffic.splice(i, 1); continue; }
+      var dx = Math.abs(o.x - car.x), dy = Math.abs(o.y - car.y);
+      if (dx < (o.w + car.w) / 2 - 6 && dy < (o.h + car.h) / 2 - 8) { crash(); return; }
+      if (!o.near && o.y > car.y && dx < o.w + 14 && dy < (o.h + car.h) / 2 + 6) { o.near = true; bonus += 50; nearMsg = "Close call +50"; nearMsgT = 1; K.sfx("select"); }
+    }
+    for (i = coins.length - 1; i >= 0; i--) {
+      var c = coins[i]; c.y += sp * dt;
+      if (c.y > H + 30) { coins.splice(i, 1); continue; }
+      if (Math.abs(c.x - car.x) < 30 && Math.abs(c.y - car.y) < 44) { coins.splice(i, 1); coinCount++; K.sfx("coin"); fx.burst(c.x, c.y, 8, { color: [C.yellow, "#fff"], speed: 120, life: 0.4 }); }
+    }
+    for (i = cans.length - 1; i >= 0; i--) {
+      var n = cans[i]; n.y += sp * dt;
+      if (n.y > H + 30) { cans.splice(i, 1); continue; }
+      if (Math.abs(n.x - car.x) < 32 && Math.abs(n.y - car.y) < 46) { cans.splice(i, 1); nitro = Math.min(1, nitro + 0.45); K.sfx("power"); K.toast("Nitro refilled"); }
+    }
+    if (nearMsgT > 0) nearMsgT -= dt;
+  }
+
+  function drawCar(ctx, x, y, w, h, col, tilt, player, blink) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(tilt || 0);
+    ctx.fillStyle = "rgba(0,0,0,.45)"; K.roundRect(ctx, -w / 2 + 3, -h / 2 + 6, w, h, 10); ctx.fill();
+    K.glow(ctx, col, player ? 22 : 12);
+    var g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+    g.addColorStop(0, col); g.addColorStop(0.5, "#ffffff"); g.addColorStop(0.52, col); g.addColorStop(1, col);
+    ctx.fillStyle = player ? g : col; K.roundRect(ctx, -w / 2, -h / 2, w, h, 10); ctx.fill(); K.noGlow(ctx);
+    ctx.fillStyle = "rgba(8,10,30,.85)";
+    K.roundRect(ctx, -w / 2 + 6, -h / 2 + (player ? 14 : 12), w - 12, 14, 4); ctx.fill();
+    K.roundRect(ctx, -w / 2 + 6, h / 2 - 22, w - 12, 10, 4); ctx.fill();
+    // lights
+    if (player) { ctx.fillStyle = "#e9fbff"; ctx.fillRect(-w / 2 + 4, -h / 2 + 2, 8, 4); ctx.fillRect(w / 2 - 12, -h / 2 + 2, 8, 4); }
+    ctx.fillStyle = "#ff3355"; ctx.fillRect(-w / 2 + 4, h / 2 - 5, 9, 3); ctx.fillRect(w / 2 - 13, h / 2 - 5, 9, 3);
+    if (blink) { var on = Math.floor(t * 8) % 2 === 0; if (on) { ctx.fillStyle = C.yellow; K.glow(ctx, C.yellow, 10); ctx.fillRect(blink < 0 ? -w / 2 - 2 : w / 2 - 4, -h / 2 + 4, 6, 6); ctx.fillRect(blink < 0 ? -w / 2 - 2 : w / 2 - 4, h / 2 - 10, 6, 6); K.noGlow(ctx); } }
+    ctx.restore();
+  }
+
+  function draw(ctx) {
+    ctx.save(); K.applyShake(ctx, 1 / 60);
+    // city
+    ctx.fillStyle = "#06061a"; ctx.fillRect(-20, -20, W + 40, H + 40);
+    for (var side = 0; side < 2; side++) {
+      for (var i = 0; i < 12; i++) {
+        var y = ((i * 80 + scroll * 1.0) % 960) - 120, x0 = side ? ROAD_R + 12 : 6;
+        ctx.fillStyle = i % 3 === 0 ? "#130f35" : "#0d0b28"; ctx.fillRect(x0, y, 52, 70);
+        ctx.fillStyle = i % 2 ? "rgba(166,91,255,.55)" : "rgba(47,184,255,.5)";
+        for (var wy = 0; wy < 3; wy++) for (var wx = 0; wx < 3; wx++) if ((i + wx + wy) % 3) ctx.fillRect(x0 + 8 + wx * 14, y + 10 + wy * 18, 7, 8);
+      }
+    }
+    // road
+    ctx.fillStyle = "#0d0e22"; ctx.fillRect(ROAD_L, 0, ROAD_R - ROAD_L, H);
+    var rg = ctx.createLinearGradient(ROAD_L, 0, ROAD_R, 0);
+    rg.addColorStop(0, "rgba(47,184,255,.10)"); rg.addColorStop(0.5, "rgba(0,0,0,0)"); rg.addColorStop(1, "rgba(166,91,255,.10)");
+    ctx.fillStyle = rg; ctx.fillRect(ROAD_L, 0, ROAD_R - ROAD_L, H);
+    ctx.fillStyle = "rgba(220,225,255,.35)";
+    for (var l = 1; l < LANES; l++) for (var d = -80; d < H + 80; d += 80) ctx.fillRect(ROAD_L + LW * l - 2, d + scroll, 4, 40);
+    K.glow(ctx, C.blue, 14); ctx.fillStyle = C.blue; ctx.fillRect(ROAD_L - 4, 0, 4, H); K.noGlow(ctx);
+    K.glow(ctx, C.purple, 14); ctx.fillStyle = C.purple; ctx.fillRect(ROAD_R, 0, 4, H); K.noGlow(ctx);
+
+    // coins & cans
+    coins.forEach(function (c) {
+      var sx = Math.abs(Math.cos(t * 5 + c.y * 0.02));
+      K.glow(ctx, C.yellow, 12); ctx.fillStyle = C.yellow; ctx.beginPath(); ctx.ellipse(c.x, c.y, 11 * sx + 2, 11, 0, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx);
+      ctx.fillStyle = "rgba(120,80,0,.6)"; ctx.beginPath(); ctx.ellipse(c.x, c.y, 5 * sx + 1, 5, 0, 0, Math.PI * 2); ctx.fill();
+    });
+    cans.forEach(function (n) {
+      K.glow(ctx, C.cyan, 16); ctx.fillStyle = C.cyan; K.roundRect(ctx, n.x - 11, n.y - 16, 22, 32, 5); ctx.fill(); K.noGlow(ctx);
+      K.text(ctx, "N", n.x, n.y + 1, { size: 16, color: "#05202a", align: "center" });
+    });
+    traffic.forEach(function (o) { drawCar(ctx, o.x, o.y, o.w, o.h, o.col, 0, false, o.blink > 0 ? (o.target < o.lane ? -1 : 1) : 0); });
+    if (!crashed) {
+      if (boosting) { ctx.save(); ctx.globalCompositeOperation = "lighter"; var fg = ctx.createLinearGradient(0, car.y + 36, 0, car.y + 90); fg.addColorStop(0, "rgba(69,240,255,.8)"); fg.addColorStop(1, "rgba(166,91,255,0)"); ctx.fillStyle = fg; ctx.fillRect(car.x - 14, car.y + 36, 28, 54); ctx.restore(); }
+      drawCar(ctx, car.x, car.y, car.w, car.h, C.blue, car.tilt, true);
+    }
+    fx.draw(ctx);
+    // speed lines when boosting
+    if (boosting) { ctx.strokeStyle = "rgba(200,230,255,.25)"; ctx.lineWidth = 2; for (var s = 0; s < 8; s++) { var lx = ROAD_L + Math.random() * (ROAD_R - ROAD_L), ly = Math.random() * H; ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx, ly + 60); ctx.stroke(); } }
+
+    // HUD
+    var sc = Math.floor(dist / 10) + coinCount * 25 + bonus;
+    ctx.fillStyle = "rgba(5,6,20,.7)"; ctx.fillRect(0, 0, W, 58);
+    K.text(ctx, K.fmt(sc), 14, 22, { size: 24, color: "#fff", glow: 10, glowColor: C.blue });
+    K.text(ctx, Math.floor(dist / 10) + " m", 14, 44, { size: 12, color: C.muted, family: "body", weight: 600 });
+    K.text(ctx, Math.round((K.state === "play" ? speed * (boosting ? 1.65 : 1) : 0) / 4) + " km/h", 150, 22, { size: 18, color: C.cyan });
+    K.text(ctx, "● " + coinCount, 150, 44, { size: 13, color: C.yellow, family: "body", weight: 600 });
+    K.text(ctx, "Nitro", 256, 22, { size: 12, color: C.muted, family: "body", weight: 600 });
+    ctx.fillStyle = "rgba(255,255,255,.1)"; ctx.fillRect(256, 34, 110, 10);
+    var ng = ctx.createLinearGradient(256, 0, 366, 0); ng.addColorStop(0, C.cyan); ng.addColorStop(1, C.purple);
+    ctx.fillStyle = ng; ctx.fillRect(256, 34, 110 * nitro, 10);
+    if (nearMsgT > 0) { ctx.globalAlpha = Math.min(1, nearMsgT * 2); K.text(ctx, nearMsg, W / 2, H * 0.4, { size: 26, color: C.yellow, align: "center", glow: 14 }); ctx.globalAlpha = 1; }
+    ctx.restore();
+  }
+
+  function start() {
+    reset(); K.state = "play";
+    if (K.thumb) {
+      speed = 520; dist = 4200; coinCount = 12; nitro = 0.7; boosting = true;
+      traffic.push({ lane: 0, x: laneX(0), y: 180, w: 40, h: 70, v: 0.5, col: COLORS[0], target: 0, blink: 0 });
+      traffic.push({ lane: 2, x: laneX(2), y: 330, w: 40, h: 100, v: 0.5, col: COLORS[1], target: 2, blink: 0 });
+      traffic.push({ lane: 3, x: laneX(3), y: 90, w: 40, h: 70, v: 0.5, col: COLORS[2], target: 2, blink: 0.5 });
+      for (var k = 0; k < 4; k++) coins.push({ x: laneX(1), y: 120 + k * 46 });
+      car.x = laneX(1) + 10; touch.nitro = true; K.thumbTime = 0.3;
+    }
+  }
+  K.onRestart = start;
+  reset();
+  K.menu({
+    title: "Turbo Lanes",
+    body: "Weave through traffic, grab coins and hit <b>Nitro</b> for a burst of speed. Steer with <kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd>, boost with <kbd>↑</kbd> or <kbd>Space</kbd>.",
+    onStart: start
+  });
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

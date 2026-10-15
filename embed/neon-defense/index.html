@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Neon Defense | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="neon-defense" style="--game-bg:#060717">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var W = 960, H = 540, TS = 48, GW = 16, GH = 10, OY = 40, PX = GW * TS;
+  var ctx = K.canvas(W, H);
+  var fx = new K.Particles();
+  var WAY = [[-1, 1], [4, 1], [4, 6], [1, 6], [1, 8], [8, 8], [8, 3], [11, 3], [11, 7], [14, 7], [14, 2], [16, 2]];
+  var path = {}, pts = WAY.map(function (p) { return { x: p[0] * TS + TS / 2, y: OY + p[1] * TS + TS / 2 }; });
+  for (var i = 0; i < WAY.length - 1; i++) {
+    var a = WAY[i], b = WAY[i + 1], dx = Math.sign(b[0] - a[0]), dy = Math.sign(b[1] - a[1]), x = a[0], y = a[1];
+    while (true) { path[x + "," + y] = 1; if (x === b[0] && y === b[1]) break; x += dx; y += dy; }
+  }
+  var TOWERS = {
+    blaster: { name: "Blaster", cost: 50, range: 112, dmg: 9, rate: 0.36, col: C.blue, desc: "Fast shots" },
+    frost: { name: "Frost", cost: 70, range: 96, dmg: 3, rate: 0.9, col: C.cyan, desc: "Slows enemies" },
+    cannon: { name: "Cannon", cost: 110, range: 128, dmg: 28, rate: 1.35, col: C.orange, desc: "Splash damage" },
+    laser: { name: "Laser", cost: 180, range: 150, dmg: 40, rate: 0, col: C.pink, desc: "Beam heats up" }
+  };
+  var ORDER = ["blaster", "frost", "cannon", "laser"];
+  var ENEMY = {
+    grunt: { hp: 32, sp: 52, r: 11, reward: 5, col: C.purple },
+    runner: { hp: 18, sp: 100, r: 9, reward: 5, col: C.yellow },
+    tank: { hp: 150, sp: 33, r: 15, reward: 14, col: C.red },
+    swarm: { hp: 11, sp: 72, r: 7, reward: 2, col: C.green },
+    boss: { hp: 1600, sp: 28, r: 22, reward: 150, col: "#ff6fd8" }
+  };
+  var towers, enemies, shots, money, lives, wave, queue, spawnT, inWave, build, sel, speed, hover, t = 0, won, endless, waveMsgT, lost;
+  var LAST = 25;
+
+  function reset() { towers = []; enemies = []; shots = []; money = 160; lives = 20; wave = 0; queue = []; spawnT = 0; inWave = false; build = null; sel = null; speed = 1; won = false; endless = false; waveMsgT = 0; lost = false; fx.clear(); }
+  function waveList(n) {
+    var list = [], cnt = 6 + n * 2;
+    if (n % 10 === 0) { list.push("boss"); for (var i = 0; i < n; i++) list.push("swarm"); return list; }
+    for (i = 0; i < cnt; i++) {
+      var r = Math.random();
+      if (n >= 6 && r < 0.12) list.push("tank");
+      else if (n >= 3 && r < 0.35) list.push("runner");
+      else if (n >= 4 && r < 0.5) { list.push("swarm", "swarm", "swarm"); }
+      else list.push("grunt");
+    }
+    if (n % 5 === 0) for (i = 0; i < Math.floor(n / 5); i++) list.push("tank");
+    return list;
+  }
+  function startWave() {
+    if (inWave || won || lost) return;
+    wave++; queue = waveList(wave); inWave = true; spawnT = 0; waveMsgT = 1.6; K.sfx("power");
+  }
+  function hpScale() { return (1 + (wave - 1) * 0.17) * (wave > LAST ? Math.pow(1.12, wave - LAST) : 1); }
+  function spawn(type) {
+    var d = ENEMY[type];
+    enemies.push({ type: type, x: pts[0].x, y: pts[0].y, seg: 1, hp: d.hp * hpScale(), max: d.hp * hpScale(), sp: d.sp, r: d.r, col: d.col, reward: d.reward, slow: 0, flash: 0, dist: 0 });
+  }
+
+  /* ---------- towers ---------- */
+  function stats(tw) { var d = TOWERS[tw.type], lv = tw.lvl; return { range: d.range * (1 + (lv - 1) * 0.12), dmg: d.dmg * Math.pow(1.6, lv - 1), rate: d.rate * Math.pow(0.85, lv - 1) }; }
+  function upCost(tw) { return tw.lvl >= 3 ? 0 : Math.round(TOWERS[tw.type].cost * (tw.lvl === 1 ? 0.8 : 1.3)); }
+  function sellValue(tw) { return Math.round(tw.spent * 0.7); }
+  function tileFree(tx, ty) { return tx >= 0 && ty >= 0 && tx < GW && ty < GH && !path[tx + "," + ty] && !towers.some(function (q) { return q.tx === tx && q.ty === ty; }); }
+  function place(tx, ty) {
+    var d = TOWERS[build]; if (!tileFree(tx, ty)) { K.sfx("error"); return; }
+    if (money < d.cost) { K.toast("Not enough money"); K.sfx("error"); return; }
+    money -= d.cost; var tw = { type: build, tx: tx, ty: ty, x: tx * TS + TS / 2, y: OY + ty * TS + TS / 2, lvl: 1, cool: 0, spent: d.cost, target: null, heat: 0, ang: 0 };
+    towers.push(tw); K.sfx("thud"); fx.burst(tw.x, tw.y, 16, { color: [d.col, "#fff"], speed: 120, life: 0.4 });
+    if (!K.keys.ShiftLeft && !K.keys.ShiftRight) build = null;
+    sel = tw;
+  }
+  function inRange(tw, e, r) { return K.dist(tw.x, tw.y, e.x, e.y) <= r + e.r; }
+  function firstTarget(tw, r) { var best = null; enemies.forEach(function (e) { if (inRange(tw, e, r) && (!best || e.dist > best.dist)) best = e; }); return best; }
+  function damage(e, n) { e.hp -= n; e.flash = 1; if (e.hp <= 0 && !e.dead) { e.dead = true; money += e.reward; fx.burst(e.x, e.y, e.type === "boss" ? 60 : 12, { color: [e.col, "#fff"], speed: 160, life: 0.5 }); K.tone(300 + Math.random() * 200, 0.05, { type: "square", vol: 0.05 }); if (e.type === "boss") { K.sfx("explode"); K.shake(12); } } }
+
+  /* ---------- input ---------- */
+  function panelButtons() {
+    var list = [];
+    ORDER.forEach(function (k, i) { list.push({ id: "t:" + k, x: PX + 12, y: OY + 8 + i * 70, w: W - PX - 24, h: 62 }); });
+    list.push({ id: "wave", x: PX + 12, y: H - 64, w: W - PX - 24, h: 52 });
+    list.push({ id: "speed", x: PX + 12, y: H - 112, w: 80, h: 38 });
+    if (sel) { list.push({ id: "up", x: PX + 12, y: OY + 312, w: 80, h: 38 }); list.push({ id: "sell", x: PX + 100, y: OY + 312, w: 80, h: 38 }); }
+    return list;
+  }
+  function hit(p) { var bs = panelButtons(); for (var i = 0; i < bs.length; i++) { var b = bs[i]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) return b.id; } return null; }
+  K.on("move", function (p) { hover = p; });
+  K.on("tap", function (p, e) { click(p, e); });
+  function click(p) {
+    if (K.state !== "play") return;
+    var id = hit(p);
+    if (id) {
+      if (id.indexOf("t:") === 0) { var k = id.slice(2); build = build === k ? null : k; sel = null; K.sfx("click"); }
+      else if (id === "wave") startWave();
+      else if (id === "speed") { speed = speed === 1 ? 2 : 1; K.sfx("click"); }
+      else if (id === "up" && sel) { var c = upCost(sel); if (!c) return; if (money < c) { K.toast("Not enough money"); K.sfx("error"); return; } money -= c; sel.spent += c; sel.lvl++; K.sfx("power"); fx.burst(sel.x, sel.y, 20, { color: [TOWERS[sel.type].col, "#fff"], speed: 150 }); }
+      else if (id === "sell" && sel) { money += sellValue(sel); towers.splice(towers.indexOf(sel), 1); sel = null; K.sfx("coin"); }
+      return;
+    }
+    if (p.x < PX && p.y > OY) {
+      var tx = Math.floor(p.x / TS), ty = Math.floor((p.y - OY) / TS);
+      var tw = towers.filter(function (q) { return q.tx === tx && q.ty === ty; })[0];
+      if (tw) { sel = sel === tw ? null : tw; build = null; K.sfx("click"); return; }
+      if (build) place(tx, ty); else sel = null;
+    }
+  }
+  K.on("key", function (code) {
+    if (K.state !== "play") return;
+    var n = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3 }[code]; if (n != null) { build = ORDER[n]; sel = null; K.sfx("click"); }
+    if (code === "Space" || code === "Enter" || code === "KeyN") startWave();
+    if (code === "Escape") { build = null; sel = null; }
+    if (code === "KeyF") speed = speed === 1 ? 2 : 1;
+    if (code === "KeyU" && sel) click({ x: PX + 20, y: OY + 320 });
+    if ((code === "Delete" || code === "Backspace") && sel) click({ x: PX + 110, y: OY + 320 });
+  });
+  window.addEventListener("contextmenu", function () { build = null; });
+
+  /* ---------- update ---------- */
+  function update(dt0) {
+    t += dt0; fx.update(dt0); if (waveMsgT > 0) waveMsgT -= dt0;
+    if (K.state !== "play" || lost) return;
+    for (var step = 0; step < speed; step++) tick(dt0);
+  }
+  function tick(dt) {
+    if (inWave) {
+      spawnT -= dt;
+      if (queue.length && spawnT <= 0) { var ty = queue.shift(); spawn(ty); spawnT = ty === "swarm" ? 0.28 : ty === "tank" ? 1.4 : ty === "boss" ? 2 : 0.75; }
+      if (!queue.length && !enemies.length) {
+        inWave = false; var bonus = 20 + wave * 3; money += bonus; K.toast("Wave " + wave + " cleared: +$" + bonus); K.sfx("win");
+        if (wave === LAST && !endless) { won = true; setTimeout(victory, 600); }
+      }
+    }
+    enemies.forEach(function (e) {
+      e.flash = Math.max(0, e.flash - dt * 6); e.slow = Math.max(0, e.slow - dt);
+      var sp = e.sp * (e.slow > 0 ? 0.55 : 1) * dt, target = pts[e.seg];
+      while (sp > 0 && target) {
+        var dx = target.x - e.x, dy = target.y - e.y, d = Math.hypot(dx, dy);
+        if (d <= sp) { e.x = target.x; e.y = target.y; sp -= d; e.dist += d; e.seg++; target = pts[e.seg]; }
+        else { e.x += dx / d * sp; e.y += dy / d * sp; e.dist += sp; sp = 0; }
+      }
+      if (!target) { e.dead = true; e.escaped = true; lives -= e.type === "boss" ? 10 : 1; K.sfx("hit"); K.shake(6); }
+    });
+    towers.forEach(function (tw) {
+      var s = stats(tw); tw.cool -= dt;
+      if (tw.type === "laser") {
+        if (!tw.target || tw.target.dead || !inRange(tw, tw.target, s.range)) { tw.target = firstTarget(tw, s.range); tw.heat = 0; }
+        if (tw.target) { tw.heat = Math.min(3, tw.heat + dt); damage(tw.target, s.dmg * (0.6 + tw.heat * 0.5) * dt); tw.ang = Math.atan2(tw.target.y - tw.y, tw.target.x - tw.x); }
+        return;
+      }
+      if (tw.cool > 0) return;
+      if (tw.type === "frost") {
+        var any = false; enemies.forEach(function (e) { if (inRange(tw, e, s.range)) { e.slow = 1.6; damage(e, s.dmg); any = true; } });
+        if (any) { tw.cool = s.rate; tw.pulse = 1; }
+        return;
+      }
+      var tg = firstTarget(tw, s.range); if (!tg) return;
+      tw.cool = s.rate; tw.ang = Math.atan2(tg.y - tw.y, tg.x - tw.x);
+      shots.push({ x: tw.x + Math.cos(tw.ang) * 18, y: tw.y + Math.sin(tw.ang) * 18, tg: tg, dmg: s.dmg, sp: tw.type === "cannon" ? 380 : 620, splash: tw.type === "cannon" ? 56 + tw.lvl * 8 : 0, col: TOWERS[tw.type].col });
+      if (tw.type === "cannon") K.tone(120, 0.08, { type: "triangle", vol: 0.1 }); else K.tone(880, 0.03, { type: "square", vol: 0.03 });
+    });
+    for (var i = shots.length - 1; i >= 0; i--) {
+      var s2 = shots[i], tg2 = s2.tg; if (tg2.dead && !s2.splash) { shots.splice(i, 1); continue; }
+      var dx = tg2.x - s2.x, dy = tg2.y - s2.y, d = Math.hypot(dx, dy), mv = s2.sp * dt;
+      if (d <= mv + tg2.r * 0.5) {
+        if (s2.splash) { enemies.forEach(function (e) { if (K.dist(e.x, e.y, tg2.x, tg2.y) < s2.splash) damage(e, s2.dmg); }); fx.burst(tg2.x, tg2.y, 18, { color: [C.orange, C.yellow], speed: 160, life: 0.4 }); }
+        else damage(tg2, s2.dmg);
+        shots.splice(i, 1);
+      } else { s2.x += dx / d * mv; s2.y += dy / d * mv; }
+    }
+    enemies = enemies.filter(function (e) { return !e.dead; });
+    towers.forEach(function (tw) { if (tw.pulse) tw.pulse = Math.max(0, tw.pulse - dt * 3); });
+    if (lives <= 0 && !lost) { lives = 0; lost = true; K.sfx("lose"); setTimeout(function () { K.over({ title: "The core fell", score: wave, label: "Waves reached", format: String, extra: '<div class="k-best">' + towers.length + " towers built</div>", onRestart: start }); }, 700); }
+  }
+  function victory() {
+    K.state = "over";
+    K.saveBest(LAST);
+    K.screen({ title: "You held the line!", html: '<p class="k-body">All ' + LAST + " waves cleared with " + lives + " lives left.</p>", button: "Keep going (endless)", onStart: function () { endless = true; won = false; }, secondary: [{ label: "New game", onClick: function () { K.hideScreen(); start(); K.updateToolbar(); } }], credit: false });
+  }
+
+  /* ---------- draw ---------- */
+  function towerShape(ctx, type, x, y, lvl, ang, col, alpha) {
+    ctx.save(); ctx.globalAlpha = alpha == null ? 1 : alpha; ctx.translate(x, y);
+    ctx.fillStyle = "#1a1c48"; K.roundRect(ctx, -18, -18, 36, 36, 9); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 2; K.glow(ctx, col, 10); K.roundRect(ctx, -18, -18, 36, 36, 9); ctx.stroke(); K.noGlow(ctx);
+    for (var l = 0; l < lvl; l++) { ctx.fillStyle = col; ctx.fillRect(-12 + l * 9, 12, 6, 3); }
+    ctx.rotate(ang || 0);
+    ctx.fillStyle = col;
+    if (type === "blaster") { ctx.fillRect(0, -3, 18, 6); ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill(); }
+    else if (type === "frost") { for (var k = 0; k < 6; k++) { ctx.rotate(Math.PI / 3); ctx.fillRect(0, -1.5, 11, 3); } ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill(); }
+    else if (type === "cannon") { ctx.fillRect(0, -6, 16, 12); ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill(); }
+    else { ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -9); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+  }
+  function btn(ctx, x, y, w, h, label, on, disabled, col) {
+    ctx.save(); ctx.globalAlpha = disabled ? 0.4 : 1;
+    ctx.fillStyle = on ? "rgba(47,184,255,.22)" : "rgba(255,255,255,.05)"; K.roundRect(ctx, x, y, w, h, 8); ctx.fill();
+    ctx.strokeStyle = on ? (col || C.blue) : "rgba(160,170,255,.3)"; ctx.lineWidth = on ? 2 : 1; K.roundRect(ctx, x, y, w, h, 8); ctx.stroke();
+    if (label) K.text(ctx, label, x + w / 2, y + h / 2 + 1, { size: 14, color: "#fff", align: "center" });
+    ctx.restore();
+  }
+  function draw(ctx) {
+    ctx.save(); K.applyShake(ctx, 1 / 60);
+    ctx.fillStyle = "#060717"; ctx.fillRect(-20, -20, W + 40, H + 40);
+    // grid
+    for (var y = 0; y < GH; y++) for (var x = 0; x < GW; x++) {
+      var px = x * TS, py = OY + y * TS;
+      if (path[x + "," + y]) { ctx.fillStyle = "#1b1440"; ctx.fillRect(px, py, TS, TS); }
+      else { ctx.fillStyle = (x + y) % 2 ? "#0c0e2b" : "#0e1030"; ctx.fillRect(px, py, TS, TS); }
+    }
+    ctx.strokeStyle = "rgba(166,91,255,.55)"; ctx.lineWidth = 3; K.glow(ctx, C.purple, 10); ctx.setLineDash([10, 8]); ctx.lineDashOffset = -t * 30;
+    ctx.beginPath(); pts.forEach(function (p, i) { if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); }); ctx.stroke(); ctx.setLineDash([]); K.noGlow(ctx);
+    // core
+    var core = pts[pts.length - 2]; ctx.save(); ctx.translate(PX - 14, core.y); K.glow(ctx, C.cyan, 20); ctx.fillStyle = C.cyan; ctx.rotate(t); ctx.fillRect(-9, -9, 18, 18); ctx.restore(); K.noGlow(ctx);
+    // placement preview
+    if (build && hover && hover.x < PX && hover.y > OY) {
+      var tx = Math.floor(hover.x / TS), ty = Math.floor((hover.y - OY) / TS), ok = tileFree(tx, ty) && money >= TOWERS[build].cost;
+      var cx = tx * TS + TS / 2, cy = OY + ty * TS + TS / 2;
+      ctx.fillStyle = ok ? "rgba(61,255,168,.08)" : "rgba(255,75,110,.1)"; ctx.beginPath(); ctx.arc(cx, cy, TOWERS[build].range, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = ok ? "rgba(61,255,168,.5)" : "rgba(255,75,110,.5)"; ctx.stroke();
+      towerShape(ctx, build, cx, cy, 1, 0, TOWERS[build].col, 0.55);
+    }
+    // towers
+    towers.forEach(function (tw) {
+      var col = TOWERS[tw.type].col, s = stats(tw);
+      if (tw === sel) { ctx.fillStyle = "rgba(47,184,255,.07)"; ctx.beginPath(); ctx.arc(tw.x, tw.y, s.range, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = "rgba(47,184,255,.5)"; ctx.lineWidth = 1.5; ctx.stroke(); }
+      if (tw.type === "frost" && tw.pulse) { ctx.strokeStyle = "rgba(69,240,255," + tw.pulse * 0.6 + ")"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(tw.x, tw.y, s.range * (1 - tw.pulse * 0.6), 0, Math.PI * 2); ctx.stroke(); }
+      towerShape(ctx, tw.type, tw.x, tw.y, tw.lvl, tw.ang, col);
+      if (tw.type === "laser" && tw.target && !tw.target.dead) {
+        ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.strokeStyle = C.pink; ctx.lineWidth = 2 + tw.heat * 1.5; K.glow(ctx, C.pink, 14);
+        ctx.beginPath(); ctx.moveTo(tw.x, tw.y); ctx.lineTo(tw.target.x, tw.target.y); ctx.stroke(); ctx.restore();
+      }
+    });
+    // enemies
+    enemies.forEach(function (e) {
+      ctx.save(); ctx.translate(e.x, e.y);
+      ctx.fillStyle = e.flash > 0 ? "#fff" : e.col; K.glow(ctx, e.col, 8);
+      if (e.type === "tank" || e.type === "boss") { ctx.rotate(t * 0.8); ctx.fillRect(-e.r, -e.r, e.r * 2, e.r * 2); }
+      else if (e.type === "runner") { ctx.beginPath(); ctx.moveTo(e.r * 1.3, 0); ctx.lineTo(-e.r, -e.r); ctx.lineTo(-e.r, e.r); ctx.fill(); }
+      else { ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill(); }
+      K.noGlow(ctx);
+      if (e.slow > 0) { ctx.strokeStyle = C.cyan; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, e.r + 4, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.restore();
+      if (e.hp < e.max) { ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(e.x - 14, e.y - e.r - 9, 28, 4); ctx.fillStyle = C.green; ctx.fillRect(e.x - 14, e.y - e.r - 9, 28 * Math.max(0, e.hp / e.max), 4); }
+    });
+    shots.forEach(function (s) { ctx.fillStyle = s.col; K.glow(ctx, s.col, 10); ctx.beginPath(); ctx.arc(s.x, s.y, s.splash ? 6 : 3.5, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx); });
+    fx.draw(ctx);
+
+    // top bar
+    ctx.fillStyle = "#0a0b26"; ctx.fillRect(0, 0, W, OY);
+    K.text(ctx, "$" + money, 16, 21, { size: 20, color: C.yellow });
+    K.text(ctx, "♥ " + lives, 120, 21, { size: 20, color: C.pink });
+    K.text(ctx, "Wave " + wave + (endless ? "" : " / " + LAST), 210, 21, { size: 18, color: "#fff" });
+    if (!inWave && !won && !lost) K.text(ctx, wave === 0 ? "Build towers, then start the first wave" : "Get ready for wave " + (wave + 1), 420, 21, { size: 13, color: C.muted, family: "body", weight: 600 });
+    // panel
+    ctx.fillStyle = "#0a0b26"; ctx.fillRect(PX, OY, W - PX, H - OY);
+    ctx.fillStyle = "rgba(160,170,255,.2)"; ctx.fillRect(PX, OY, 1, H - OY);
+    var bs = panelButtons();
+    ORDER.forEach(function (k, i) {
+      var b = bs[i], d = TOWERS[k], afford = money >= d.cost;
+      btn(ctx, b.x, b.y, b.w, b.h, "", build === k, !afford, d.col);
+      towerShape(ctx, k, b.x + 30, b.y + b.h / 2, 1, 0, d.col, afford ? 1 : 0.5);
+      K.text(ctx, (i + 1) + "  " + d.name, b.x + 58, b.y + 20, { size: 15, color: "#fff" });
+      K.text(ctx, "$" + d.cost, b.x + b.w - 8, b.y + 20, { size: 14, color: C.yellow, align: "right" });
+      K.text(ctx, d.desc, b.x + 58, b.y + 42, { size: 11, color: C.muted, family: "body", weight: 500 });
+    });
+    if (sel) {
+      var s = stats(sel), uc = upCost(sel);
+      K.text(ctx, TOWERS[sel.type].name + " level " + sel.lvl, PX + 12, OY + 298, { size: 14, color: "#fff" });
+      btn(ctx, PX + 12, OY + 312, 80, 38, uc ? "Up $" + uc : "Max", false, !uc || money < uc);
+      btn(ctx, PX + 100, OY + 312, 80, 38, "Sell $" + sellValue(sel), false, false);
+      K.text(ctx, "Damage " + Math.round(s.dmg) + (sel.type === "laser" ? "/s" : "") + "   Range " + Math.round(s.range), PX + 12, OY + 364, { size: 11, color: C.muted, family: "body", weight: 500 });
+    } else if (!build) {
+      K.text(ctx, "Pick a tower, then a free", PX + 12, OY + 304, { size: 12, color: C.muted, family: "body", weight: 500 });
+      K.text(ctx, "square next to the path.", PX + 12, OY + 322, { size: 12, color: C.muted, family: "body", weight: 500 });
+      K.text(ctx, "Tap a tower to upgrade it.", PX + 12, OY + 346, { size: 12, color: C.muted, family: "body", weight: 500 });
+    }
+    btn(ctx, PX + 12, H - 112, 80, 38, speed === 2 ? "Speed 2x" : "Speed 1x", speed === 2, false);
+    var wb = bs[4];
+    ctx.save(); var ready = !inWave && !won && !lost;
+    if (ready) { var g = ctx.createLinearGradient(wb.x, 0, wb.x + wb.w, 0); g.addColorStop(0, "#6fd6ff"); g.addColorStop(1, C.purple); ctx.fillStyle = g; K.glow(ctx, C.blue, 14 + Math.sin(t * 4) * 6); }
+    else ctx.fillStyle = "rgba(255,255,255,.06)";
+    K.roundRect(ctx, wb.x, wb.y, wb.w, wb.h, 10); ctx.fill(); K.noGlow(ctx);
+    K.text(ctx, ready ? (wave === 0 ? "Start wave 1" : "Next wave") : (inWave ? queue.length + enemies.length + " enemies left" : ""), wb.x + wb.w / 2, wb.y + wb.h / 2 + 1, { size: 16, color: ready ? "#07081c" : "#fff", align: "center" });
+    ctx.restore();
+    if (waveMsgT > 0) { ctx.globalAlpha = Math.min(1, waveMsgT); K.text(ctx, wave % 10 === 0 ? "Boss wave " + wave : "Wave " + wave, PX / 2, H / 2, { size: 46, color: "#fff", align: "center", glow: 20, glowColor: C.purple }); ctx.globalAlpha = 1; }
+    ctx.restore();
+  }
+  function start() {
+    reset(); K.state = "play";
+    if (K.thumb) {
+      K.thumbTime = 1.4; money = 245; lives = 17;
+      [["blaster", 3, 2], ["frost", 5, 5], ["cannon", 7, 6], ["laser", 9, 5], ["blaster", 10, 2], ["cannon", 13, 5]].forEach(function (d, i) { build = d[0]; money += 999; place(d[1], d[2]); towers[i].lvl = 1 + (i % 3); });
+      build = null; sel = null; money = 245; wave = 8; inWave = true; queue = [];
+      for (var i = 0; i < 16; i++) { spawn(K.pick(["grunt", "runner", "tank", "swarm"])); var e = enemies[enemies.length - 1]; e.seg = 1; for (var k = 0; k < 16 + i * 26; k++) { var tg = pts[e.seg]; if (!tg) break; var dx = tg.x - e.x, dy = tg.y - e.y, d = Math.hypot(dx, dy); if (d < 4) { e.seg++; continue; } e.x += dx / d * 4; e.y += dy / d * 4; e.dist += 4; } }
+    }
+  }
+  K.onRestart = start;
+  reset();
+  K.menu({ title: "Neon Defense", body: "Build towers along the path and stop 25 waves from reaching your core. Blasters shoot fast, Frost slows, Cannons splash and Lasers melt big enemies. Upgrade towers between waves. Press <kbd>1</kbd>–<kbd>4</kbd> to pick a tower and <kbd>Space</kbd> to start a wave.", onStart: start });
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

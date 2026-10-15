@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://clanko492-source.github.io/clanko100/sitemap.xml

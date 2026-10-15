@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Crystal Clicker | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<style>
+  body{overflow:hidden;touch-action:manipulation;background:radial-gradient(70% 60% at 30% 40%,#2a1170 0%,#0e0b2c 55%,#070818 100%)}
+  .app{position:fixed;inset:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,380px)}
+  .mine{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:56px 16px 16px;overflow:hidden}
+  .gems{font-family:var(--display);font-weight:700;font-size:clamp(30px,6vw,52px);line-height:1;text-align:center;text-shadow:0 0 18px rgba(69,240,255,.6)}
+  .rate{color:var(--muted);font-size:14px}
+  .crystal{appearance:none;border:0;background:none;padding:0;cursor:pointer;width:min(52vw,42vh,300px);aspect-ratio:1;position:relative;margin:10px 0;transition:transform .08s ease;-webkit-tap-highlight-color:transparent}
+  .crystal:active{transform:scale(.94)}
+  .crystal:focus-visible{outline:2px solid var(--blue);outline-offset:8px;border-radius:50%}
+  .crystal svg{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 0 28px rgba(110,140,255,.7))}
+  .crystal .spin{transform-origin:50% 50%;animation:spin 14s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .float{position:absolute;pointer-events:none;font-family:var(--display);font-weight:700;font-size:22px;color:#fff;text-shadow:0 0 10px #45f0ff;animation:up .9s ease-out forwards}
+  @keyframes up{from{opacity:1;transform:translate(-50%,0)}to{opacity:0;transform:translate(-50%,-70px)}}
+  .boost{font-size:13px;font-weight:600;color:#1a0b2e;background:linear-gradient(90deg,#ffd84a,#ff9de9);padding:4px 10px;border-radius:999px}
+  .shop{background:rgba(9,10,32,.88);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;padding-top:50px}
+  .tabs{display:flex;gap:6px;padding:0 12px 10px;align-items:center}
+  .tabs h2{margin:0 auto 0 0;font-family:var(--display);font-size:20px}
+  .list{overflow:auto;padding:0 12px 16px;display:grid;gap:8px;align-content:start;min-height:0}
+  .item{appearance:none;width:100%;text-align:left;display:grid;grid-template-columns:42px 1fr auto;gap:10px;align-items:center;padding:10px;border-radius:10px;cursor:pointer;
+    background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--ink);transition:border-color .15s,box-shadow .15s,background .15s}
+  .item:hover:not([disabled]),.item:focus-visible{border-color:var(--blue);box-shadow:0 0 14px rgba(47,184,255,.35);outline:none}
+  .item[disabled]{opacity:.45;cursor:not-allowed}
+  .item .ic{width:42px;height:42px;border-radius:9px;display:grid;place-items:center;background:linear-gradient(145deg,rgba(47,184,255,.25),rgba(166,91,255,.25));font-family:var(--display);font-weight:700;font-size:18px}
+  .item .nm,.item .ds{display:block}
+  .item .nm{font-weight:600;font-size:14px}
+  .item .ds{font-size:12px;color:var(--muted);margin-top:2px}
+  .item .ct{font-family:var(--display);font-weight:700;font-size:15px;color:#45f0ff;text-align:right}
+  .item .ow{font-family:var(--display);font-size:22px;color:rgba(255,255,255,.35);text-align:right}
+  .item.locked .nm{color:var(--muted)}
+  .sec{font-size:12px;color:var(--muted);margin:8px 2px 0}
+  .geode{position:absolute;width:64px;height:64px;cursor:pointer;border:0;background:none;padding:0;z-index:5;animation:bob 1.4s ease-in-out infinite alternate}
+  .geode svg{width:100%;height:100%;filter:drop-shadow(0 0 14px #ffd84a)}
+  @keyframes bob{from{transform:translateY(-6px) rotate(-8deg)}to{transform:translateY(6px) rotate(8deg)}}
+  @media (max-width:700px){.app{grid-template-columns:1fr;grid-template-rows:minmax(0,46%) minmax(0,54%)}.mine{padding-top:46px}.shop{padding-top:10px;border-left:0;border-top:1px solid var(--line)}.crystal{width:min(44vw,24vh,220px)}}
+  @media (prefers-reduced-motion:reduce){.crystal .spin,.geode{animation:none}}
+</style>
+</head>
+<body data-game="crystal-clicker" style="--game-bg:#0e0b2c">
+<div class="app">
+  <section class="mine" id="mine">
+    <div class="gems" id="gems" aria-live="polite">0 gems</div>
+    <div class="rate" id="rate">0 per second</div>
+    <button type="button" class="crystal k-ui" id="crystal" aria-label="Mine the crystal">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#bff3ff"/><stop offset=".45" stop-color="#2fb8ff"/><stop offset="1" stop-color="#a65bff"/></linearGradient>
+          <linearGradient id="g2" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e3c9ff"/><stop offset="1" stop-color="#5a2fd6"/></linearGradient>
+          <radialGradient id="halo"><stop offset="0" stop-color="rgba(120,140,255,.45)"/><stop offset="1" stop-color="rgba(120,140,255,0)"/></radialGradient>
+        </defs>
+        <circle cx="100" cy="100" r="98" fill="url(#halo)"/>
+        <g class="spin"><path d="M100 6l6 18-6-6-6 6zM194 100l-18 6 6-6-6-6zM100 194l-6-18 6 6 6-6zM6 100l18-6-6 6 6 6z" fill="rgba(160,200,255,.5)"/></g>
+        <path d="M100 22l52 46-52 112-52-112z" fill="url(#g1)"/>
+        <path d="M100 22l52 46H48z" fill="url(#g2)" opacity=".9"/>
+        <path d="M48 68h104l-52 112z" fill="rgba(10,14,60,.18)"/>
+        <path d="M100 22l-20 46 20 112 20-112z" fill="rgba(255,255,255,.22)"/>
+        <path d="M100 22l52 46-52 112-52-112z" fill="none" stroke="rgba(255,255,255,.75)" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M48 68h104M80 68l20 112 20-112M80 68l20-46 20 46" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <div id="boost"></div>
+  </section>
+  <aside class="shop">
+    <div class="tabs"><h2>Shop</h2>
+      <button type="button" class="k-chip k-ui" data-buy="1" aria-pressed="true">Buy 1</button>
+      <button type="button" class="k-chip k-ui" data-buy="10" aria-pressed="false">Buy 10</button>
+    </div>
+    <div class="list k-ui" id="list"></div>
+  </aside>
+</div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit;
+  K.pausable = false; K.autoPause = false; K.state = "play"; K.updateToolbar();
+  var BUILDINGS = [
+    { id: "drone", name: "Drone", ic: "D", desc: "A little helper that chips away", cost: 15, rate: 0.1 },
+    { id: "miner", name: "Miner", ic: "M", desc: "Swings a pickaxe all day", cost: 100, rate: 1 },
+    { id: "drill", name: "Drill", ic: "Dr", desc: "Bores straight into the crystal", cost: 1100, rate: 8 },
+    { id: "dig", name: "Excavator", ic: "E", desc: "Moves mountains of rock", cost: 12000, rate: 47 },
+    { id: "laser", name: "Laser rig", ic: "L", desc: "Cuts gems with focused light", cost: 130000, rate: 260 },
+    { id: "ship", name: "Quarry ship", ic: "Q", desc: "Mines asteroids from orbit", cost: 1.4e6, rate: 1400 },
+    { id: "moon", name: "Moon mine", ic: "Mo", desc: "A whole moon made of crystal", cost: 2e7, rate: 7800 },
+    { id: "forge", name: "Star forge", ic: "S", desc: "Squeezes gems out of starlight", cost: 3.3e8, rate: 44000 },
+    { id: "portal", name: "Quantum portal", ic: "P", desc: "Pulls gems from other universes", cost: 5.1e9, rate: 260000 }
+  ];
+  var UPGRADES = [
+    { id: "pick1", name: "Sharp pickaxe", desc: "Clicks mine twice as much", cost: 100, need: 0, fx: { click: 2 } },
+    { id: "drone2", name: "Drone overclock", desc: "Drones mine twice as fast", cost: 500, needB: ["drone", 5], fx: { drone: 2 } },
+    { id: "pick2", name: "Diamond pickaxe", desc: "Clicks mine twice as much", cost: 2500, need: 0, fx: { click: 2 } },
+    { id: "miner2", name: "Hard hats", desc: "Miners mine twice as fast", cost: 5000, needB: ["miner", 5], fx: { miner: 2 } },
+    { id: "touch", name: "Crystal touch", desc: "Each click also adds 2% of your per-second rate", cost: 25000, need: 0, fx: { clickRate: 0.02 } },
+    { id: "drill2", name: "Titanium bits", desc: "Drills mine twice as fast", cost: 60000, needB: ["drill", 5], fx: { drill: 2 } },
+    { id: "pick3", name: "Plasma pickaxe", desc: "Clicks mine three times as much", cost: 200000, need: 0, fx: { click: 3 } },
+    { id: "dig2", name: "Bigger buckets", desc: "Excavators mine twice as fast", cost: 600000, needB: ["dig", 5], fx: { dig: 2 } },
+    { id: "all1", name: "Gem polish", desc: "Everything mines 50% faster", cost: 2e6, need: 0, fx: { all: 1.5 } },
+    { id: "laser2", name: "Prism lenses", desc: "Laser rigs mine twice as fast", cost: 7e6, needB: ["laser", 5], fx: { laser: 2 } },
+    { id: "ship2", name: "Warp engines", desc: "Quarry ships mine twice as fast", cost: 7e7, needB: ["ship", 5], fx: { ship: 2 } },
+    { id: "all2", name: "Crystal heart", desc: "Everything mines twice as fast", cost: 5e8, need: 0, fx: { all: 2 } }
+  ];
+  var st = { gems: 0, total: 0, clicks: 0, owned: {}, ups: {}, last: Date.now(), boostUntil: 0 };
+  var saved = K.store.get("save", null);
+  if (saved && saved.owned) st = Object.assign(st, saved);
+  var buyN = 1, el = function (id) { return document.getElementById(id); }, listEl = el("list");
+
+  function mult(id) { var m = 1; UPGRADES.forEach(function (u) { if (st.ups[u.id]) { if (u.fx[id]) m *= u.fx[id]; if (u.fx.all) m *= u.fx.all; } }); return m; }
+  function boostMul() { return Date.now() < st.boostUntil ? 7 : 1; }
+  function rate() { var r = 0; BUILDINGS.forEach(function (b) { r += (st.owned[b.id] || 0) * b.rate * mult(b.id); }); return r * boostMul(); }
+  function clickPower() { var c = 1; UPGRADES.forEach(function (u) { if (st.ups[u.id] && u.fx.click) c *= u.fx.click; }); var cr = 0; UPGRADES.forEach(function (u) { if (st.ups[u.id] && u.fx.clickRate) cr += u.fx.clickRate; }); return (c + rate() * cr) * (boostMul() > 1 ? 7 : 1); }
+  function cost(b, n) { var o = st.owned[b.id] || 0, total = 0; for (var i = 0; i < n; i++) total += Math.ceil(b.cost * Math.pow(1.15, o + i)); return total; }
+  function earn(n) { st.gems += n; st.total += n; }
+
+  // offline earnings (up to 2 hours, at half speed)
+  (function () {
+    var away = Math.min(7200, (Date.now() - (st.last || Date.now())) / 1000);
+    st.boostUntil = 0;
+    var r = rate(), got = Math.floor(r * away * 0.5);
+    if (got > 0 && away > 30) { earn(got); setTimeout(function () { K.toast("While you were away you mined " + K.fmt(got) + " gems", 3500); }, 600); }
+  })();
+
+  function save() { st.last = Date.now(); if (!K.thumb) K.store.set("save", st); }
+  setInterval(save, 5000); window.addEventListener("pagehide", save); document.addEventListener("visibilitychange", function () { if (document.hidden) save(); });
+
+  /* ---------- clicking ---------- */
+  var crystal = el("crystal"), mine = el("mine");
+  crystal.addEventListener("pointerdown", function (e) {
+    e.preventDefault(); var p = clickPower(); earn(p); st.clicks++;
+    K.tone(700 + Math.random() * 200, 0.04, { type: "triangle", vol: 0.08 });
+    var r = mine.getBoundingClientRect(), f = document.createElement("div"); f.className = "float";
+    f.textContent = "+" + K.fmt(p) ; f.style.left = (e.clientX - r.left) + "px"; f.style.top = (e.clientY - r.top - 20) + "px";
+    mine.appendChild(f); setTimeout(function () { f.remove(); }, 900);
+    renderTop();
+  });
+  crystal.addEventListener("keydown", function (e) { if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); var p = clickPower(); earn(p); st.clicks++; K.sfx("click"); renderTop(); } });
+
+  /* ---------- golden geode ---------- */
+  var geodeT = K.rand(40, 90);
+  function spawnGeode() {
+    var g = document.createElement("button"); g.type = "button"; g.className = "geode k-ui"; g.setAttribute("aria-label", "Golden geode bonus");
+    g.innerHTML = '<svg viewBox="0 0 64 64"><path d="M32 4l22 14v28L32 60 10 46V18z" fill="#ffd84a"/><path d="M32 4l22 14-22 12-22-12z" fill="#fff3b0"/><path d="M32 30v30" stroke="#b8860b" stroke-width="2"/></svg>';
+    var r = mine.getBoundingClientRect();
+    g.style.left = K.rand(20, Math.max(30, r.width - 90)) + "px"; g.style.top = K.rand(60, Math.max(70, r.height - 90)) + "px";
+    g.addEventListener("click", function () {
+      g.remove(); K.sfx("win");
+      if (Math.random() < 0.5 && rate() > 0) { st.boostUntil = Date.now() + 30000; K.toast("Gem rush! Everything x7 for 30 seconds", 2600); }
+      else { var bonus = Math.max(25, Math.floor(rate() * 90 + clickPower() * 20)); earn(bonus); K.toast("Geode cracked: +" + K.fmt(bonus) + " gems", 2600); }
+      renderAll();
+    });
+    mine.appendChild(g); setTimeout(function () { g.remove(); }, 12000);
+  }
+
+  /* ---------- shop ---------- */
+  function fmtRate(n) { return n < 100 ? String(Math.round(n * 10) / 10) : K.fmt(n); }
+  var shopSig = "";
+  function visibleItems() {
+    var items = [], lockedShown = false;
+    BUILDINGS.forEach(function (b, i) {
+      var owned = st.owned[b.id] || 0;
+      var unlocked = i === 0 || owned > 0 || (st.owned[BUILDINGS[i - 1].id] || 0) > 0 || st.total >= b.cost * 0.5;
+      if (unlocked) items.push({ kind: "b", def: b });
+      else if (!lockedShown) { lockedShown = true; items.push({ kind: "lock", def: b }); }
+    });
+    UPGRADES.filter(function (u) { return !st.ups[u.id] && (!u.needB || (st.owned[u.needB[0]] || 0) >= u.needB[1]) && st.total >= u.cost * 0.3; }).slice(0, 4)
+      .forEach(function (u) { items.push({ kind: "u", def: u }); });
+    return items;
+  }
+  function renderShop() {
+    var items = visibleItems(), sig = buyN + "|" + items.map(function (it) { return it.kind + it.def.id; }).join(",");
+    if (sig !== shopSig) {
+      shopSig = sig;
+      var html = "", upHeader = false;
+      items.forEach(function (it) {
+        var d = it.def;
+        if (it.kind === "lock") html += '<button type="button" class="item locked" disabled><span class="ic">?</span><span><span class="nm">???</span><span class="ds">Keep mining to unlock</span></span><span class="ct">' + K.fmt(d.cost) + "</span></button>";
+        else if (it.kind === "b") html += '<button type="button" class="item" data-b="' + d.id + '"><span class="ic">' + d.ic + '</span><span><span class="nm">' + d.name + (buyN > 1 ? " x" + buyN : "") + '</span><span class="ds" data-ds></span></span><span><span class="ct" data-ct></span><span class="ow" style="display:block" data-ow></span></span></button>';
+        else { if (!upHeader) { upHeader = true; html += '<p class="sec">Upgrades</p>'; } html += '<button type="button" class="item" data-u="' + d.id + '"><span class="ic">+</span><span><span class="nm">' + d.name + '</span><span class="ds">' + d.desc + '</span></span><span class="ct">' + K.fmt(d.cost) + "</span></button>"; }
+      });
+      html += '<p class="sec" data-stats></p>';
+      listEl.innerHTML = html;
+    }
+    items.forEach(function (it) {
+      var d = it.def;
+      if (it.kind === "b") {
+        var btn = listEl.querySelector('[data-b="' + d.id + '"]'); if (!btn) return;
+        var c = cost(d, buyN); btn.disabled = st.gems < c;
+        btn.querySelector("[data-ct]").textContent = K.fmt(c);
+        btn.querySelector("[data-ow]").textContent = st.owned[d.id] || 0;
+        btn.querySelector("[data-ds]").textContent = d.desc + ", " + fmtRate(d.rate * mult(d.id)) + "/s each";
+      } else if (it.kind === "u") {
+        var ub = listEl.querySelector('[data-u="' + d.id + '"]'); if (ub) ub.disabled = st.gems < d.cost;
+      }
+    });
+    var stats = listEl.querySelector("[data-stats]"); if (stats) stats.textContent = "Total mined: " + K.fmt(st.total) + ", clicks: " + K.fmt(st.clicks);
+  }
+  listEl.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-b]"), u = e.target.closest("[data-u]");
+    if (b && !b.disabled) {
+      var def = BUILDINGS.filter(function (x) { return x.id === b.dataset.b; })[0], c = cost(def, buyN);
+      if (st.gems >= c) { st.gems -= c; st.owned[def.id] = (st.owned[def.id] || 0) + buyN; K.sfx("coin"); renderAll(); save(); }
+    } else if (u && !u.disabled) {
+      var up = UPGRADES.filter(function (x) { return x.id === u.dataset.u; })[0];
+      if (st.gems >= up.cost) { st.gems -= up.cost; st.ups[up.id] = 1; K.sfx("power"); renderAll(); save(); }
+    }
+  });
+  document.querySelectorAll("[data-buy]").forEach(function (b) { b.addEventListener("click", function () { buyN = +b.dataset.buy; document.querySelectorAll("[data-buy]").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); }); K.sfx("click"); renderShop(); }); });
+
+  function renderTop() {
+    el("gems").textContent = K.fmt(st.gems) + (st.gems < 2 && st.gems >= 1 ? " gem" : " gems");
+    el("rate").textContent = fmtRate(rate()) + " per second";
+    var left = st.boostUntil - Date.now();
+    el("boost").innerHTML = left > 0 ? '<span class="boost">Gem rush x7: ' + Math.ceil(left / 1000) + "s</span>" : "";
+  }
+  function renderAll() { renderTop(); renderShop(); }
+
+  var last = performance.now(), shopT = 0;
+  function tick(now) {
+    var dt = Math.min(1, (now - last) / 1000); last = now;
+    earn(rate() * dt); renderTop();
+    shopT += dt; if (shopT > 0.35) { shopT = 0; renderShop(); }
+    geodeT -= dt; if (geodeT <= 0) { geodeT = K.rand(60, 140); spawnGeode(); }
+    requestAnimationFrame(tick);
+  }
+  if (K.thumb) { st = { gems: 48213, total: 92000, clicks: 811, owned: { drone: 14, miner: 9, drill: 3 }, ups: { pick1: 1, drone2: 1 }, last: Date.now(), boostUntil: 0 }; }
+  renderAll();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

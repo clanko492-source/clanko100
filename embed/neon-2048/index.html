@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Neon 2048 | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<style>
+  body{display:grid;place-items:center;background:radial-gradient(90% 70% at 50% 0%,#1a1252 0%,#0a0a22 60%,#070818 100%)}
+  .wrap{width:var(--size);display:flex;flex-direction:column;gap:12px}
+  .top{display:flex;align-items:center;gap:10px}
+  .logo{font-family:var(--display);font-weight:700;font-size:calc(var(--size)*.11);line-height:1;margin-right:auto;
+    background:linear-gradient(95deg,#7fd8ff,var(--blue) 40%,var(--purple));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 12px rgba(110,120,255,.5))}
+  .stat{min-width:74px;padding:6px 10px;text-align:center;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px}
+  .stat small{display:block;font-size:11px;color:var(--muted)}
+  .stat b{font-family:var(--display);font-size:20px}
+  .bar{display:flex;gap:8px;align-items:center}
+  .bar p{margin:0 auto 0 0;font-size:13px;color:var(--muted)}
+  .board{position:relative;width:var(--size);height:var(--size);background:rgba(16,18,56,.85);border:1px solid rgba(120,130,255,.25);
+    border-radius:14px;box-shadow:0 0 40px rgba(100,80,255,.2),inset 0 0 30px rgba(0,0,0,.4);touch-action:none}
+  .cell,.tile{position:absolute;width:var(--cell);height:var(--cell);border-radius:10px}
+  .cell{background:rgba(255,255,255,.045)}
+  .tile{display:grid;place-items:center;font-family:var(--display);font-weight:700;transition:transform .11s ease-out;will-change:transform;z-index:2}
+  .tile .in{width:100%;height:100%;display:grid;place-items:center;border-radius:10px;font-size:calc(var(--cell)*.42)}
+  .tile.new .in{animation:pop .18s ease-out}
+  .tile.merged .in{animation:merge .2s ease-out}
+  .tile.merged{z-index:3}
+  @keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+  @keyframes merge{0%{transform:scale(1)}50%{transform:scale(1.18)}100%{transform:scale(1)}}
+  .msg{position:absolute;inset:0;z-index:5;display:grid;place-items:center;text-align:center;background:rgba(6,7,24,.78);border-radius:14px;backdrop-filter:blur(3px)}
+  .msg h2{margin:0 0 6px;font-family:var(--display);font-size:34px}
+  .msg p{margin:0 0 14px;color:var(--muted)}
+  @media (prefers-reduced-motion:reduce){.tile{transition:none}.tile .in{animation:none!important}}
+</style>
+</head>
+<body data-game="neon-2048" style="--game-bg:#0a0a22">
+<div class="wrap">
+  <div class="top">
+    <div class="logo">2048</div>
+    <div class="stat"><small>Score</small><b id="score">0</b></div>
+    <div class="stat"><small>Best</small><b id="best">0</b></div>
+  </div>
+  <div class="bar">
+    <p>Join matching tiles to reach 2048.</p>
+    <button type="button" class="k-btn alt small k-ui" id="undo">Undo (3)</button>
+    <button type="button" class="k-btn small k-ui" id="new">New game</button>
+  </div>
+  <div class="board" id="board" aria-label="Game board. Use arrow keys or swipe."></div>
+</div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit;
+  K.pausable = false; K.state = "play"; K.updateToolbar();
+  var N = 4, boardEl = document.getElementById("board"), scoreEl = document.getElementById("score"), bestEl = document.getElementById("best");
+  var undoBtn = document.getElementById("undo");
+  var grid, score, nextId = 1, history = [], undos = 3, won = false, keepGoing = false, over = false, tileEls = {};
+  var size, cell, gap;
+
+  var COLORS = { 2: ["#1f2560", "#9fd8ff"], 4: ["#26307a", "#bfe6ff"], 8: ["#1f8fd6", "#fff"], 16: ["#2f6cf0", "#fff"], 32: ["#5a55f5", "#fff"], 64: ["#8a4cf2", "#fff"],
+    128: ["#b047e8", "#fff"], 256: ["#d63fd0", "#fff"], 512: ["#ef3fa6", "#fff"], 1024: ["#f2a23a", "#1b0d2e"], 2048: ["#ffd84a", "#1b0d2e"] };
+  function style(v) {
+    var c = COLORS[v] || ["#ffffff", "#1b0d2e"], glow = v >= 8 ? "0 0 " + Math.min(34, 6 + Math.log2(v) * 2.4) + "px " + c[0] : "none";
+    return "background:" + c[0] + ";color:" + c[1] + ";box-shadow:" + glow + ";font-size:calc(var(--cell)*" + (v >= 1024 ? 0.3 : v >= 128 ? 0.36 : 0.42) + ")";
+  }
+
+  function layout() {
+    size = Math.floor(Math.min(window.innerWidth * 0.92, (window.innerHeight - 130) * 0.98, 500));
+    gap = Math.round(size * 0.028); cell = (size - gap * 5) / 4;
+    document.documentElement.style.setProperty("--size", size + "px");
+    document.documentElement.style.setProperty("--cell", cell + "px");
+    boardEl.querySelectorAll(".cell").forEach(function (c) { c.remove(); });
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) { var d = document.createElement("div"); d.className = "cell"; d.style.transform = pos(r, c); boardEl.appendChild(d); }
+    render(true);
+  }
+  function pos(r, c) { return "translate(" + (gap + c * (cell + gap)) + "px," + (gap + r * (cell + gap)) + "px)"; }
+
+  function empty() { var g = []; for (var r = 0; r < N; r++) g.push([null, null, null, null]); return g; }
+  function clone(g) { return g.map(function (row) { return row.map(function (t) { return t ? { id: t.id, v: t.v } : null; }); }); }
+  function addRandom(g) {
+    var free = []; for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) if (!g[r][c]) free.push([r, c]);
+    if (!free.length) return;
+    var f = K.pick(free); g[f[0]][f[1]] = { id: nextId++, v: Math.random() < 0.9 ? 2 : 4, isNew: true };
+  }
+  function newGame() {
+    grid = empty(); score = 0; history = []; undos = 3; won = false; keepGoing = false; over = false;
+    addRandom(grid); addRandom(grid); hideMsg(); save(); render(true);
+  }
+
+  function move(dir) { // 0 up 1 right 2 down 3 left
+    if (over || (won && !keepGoing)) return;
+    var before = clone(grid), gained = 0, moved = false, merges = [];
+    var vec = [[-1, 0], [0, 1], [1, 0], [0, -1]][dir];
+    var rows = [0, 1, 2, 3], cols = [0, 1, 2, 3];
+    if (vec[0] === 1) rows.reverse(); if (vec[1] === 1) cols.reverse();
+    var mergedThisMove = {};
+    grid.forEach(function (row) { row.forEach(function (t) { if (t) { t.isNew = false; t.merged = false; t.from = null; } }); });
+    rows.forEach(function (r) {
+      cols.forEach(function (c) {
+        var t = grid[r][c]; if (!t) return;
+        var nr = r, nc = c;
+        while (true) {
+          var tr = nr + vec[0], tc = nc + vec[1];
+          if (tr < 0 || tr >= N || tc < 0 || tc >= N) break;
+          var o = grid[tr][tc];
+          if (!o) { nr = tr; nc = tc; continue; }
+          if (o.v === t.v && !mergedThisMove[o.id]) {
+            var nt = { id: nextId++, v: t.v * 2, merged: true };
+            mergedThisMove[nt.id] = true;
+            merges.push({ a: t.id, b: o.id, r: tr, c: tc });
+            grid[tr][tc] = nt; grid[r][c] = null; gained += nt.v; moved = true;
+            return;
+          }
+          break;
+        }
+        if (nr !== r || nc !== c) { grid[nr][nc] = t; grid[r][c] = null; moved = true; }
+      });
+    });
+    if (!moved) return;
+    history.push({ g: before, s: score }); if (history.length > 20) history.shift();
+    score += gained;
+    // animate merging tiles sliding into place before swapping
+    merges.forEach(function (m) {
+      [m.a, m.b].forEach(function (id) { var el = tileEls[id]; if (el) { el.style.transform = pos(m.r, m.c); el.style.zIndex = 1; setTimeout(function () { el.remove(); }, 115); delete tileEls[id]; } });
+    });
+    addRandom(grid);
+    if (gained) { K.tone(220 + Math.log2(gained) * 40, 0.07, { type: "triangle", vol: 0.12 }); } else K.sfx("click");
+    render(false);
+    if (!won && grid.some(function (row) { return row.some(function (t) { return t && t.v >= 2048; }); })) { won = true; K.sfx("win"); setTimeout(function () { showMsg("You made 2048!", "Score " + score, [["Keep going", function () { keepGoing = true; hideMsg(); }], ["New game", newGame]]); }, 300); }
+    else if (!canMove()) { over = true; K.sfx("lose"); var b = K.saveBest(score); setTimeout(function () { showMsg("No moves left", "Score " + score + (b.isNew ? ", a new best!" : ""), [["Try again", newGame]]); }, 400); }
+    K.saveBest(score);
+    save();
+  }
+  function canMove() {
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      var t = grid[r][c]; if (!t) return true;
+      if (c < N - 1 && grid[r][c + 1] && grid[r][c + 1].v === t.v) return true;
+      if (r < N - 1 && grid[r + 1][c] && grid[r + 1][c].v === t.v) return true;
+    }
+    return false;
+  }
+  function undo() {
+    if (!history.length || undos <= 0) return;
+    var h = history.pop(); grid = h.g; score = h.s; undos--; over = false; hideMsg(); K.sfx("select");
+    Object.keys(tileEls).forEach(function (id) { tileEls[id].remove(); }); tileEls = {};
+    render(true); save();
+  }
+
+  function render(instant) {
+    var seen = {};
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      var t = grid[r][c]; if (!t) continue;
+      seen[t.id] = true;
+      var el = tileEls[t.id];
+      if (!el) {
+        el = document.createElement("div"); el.className = "tile" + (t.isNew && !instant ? " new" : "") + (t.merged && !instant ? " merged" : "");
+        el.innerHTML = '<div class="in" style="' + style(t.v) + '">' + t.v + "</div>";
+        el.style.transform = pos(r, c);
+        if (t.merged && !instant) { el.style.opacity = "0"; (function (e) { setTimeout(function () { e.style.opacity = "1"; }, 100); })(el); }
+        boardEl.appendChild(el); tileEls[t.id] = el;
+      } else { el.style.transform = pos(r, c); el.classList.remove("new", "merged"); }
+    }
+    Object.keys(tileEls).forEach(function (id) { if (!seen[id]) { tileEls[id].remove(); delete tileEls[id]; } });
+    scoreEl.textContent = score; bestEl.textContent = Math.max(score, K.best());
+    undoBtn.textContent = "Undo (" + undos + ")"; undoBtn.disabled = !history.length || undos <= 0; undoBtn.style.opacity = undoBtn.disabled ? 0.45 : 1;
+  }
+  var msgEl = null;
+  function showMsg(title, text, buttons) {
+    hideMsg(); msgEl = document.createElement("div"); msgEl.className = "msg k-ui";
+    msgEl.innerHTML = "<div><h2>" + K.esc(title) + "</h2><p>" + K.esc(text) + '</p><div class="k-actions"></div></div>';
+    buttons.forEach(function (b, i) { var bt = document.createElement("button"); bt.type = "button"; bt.className = "k-btn" + (i ? " alt small" : ""); bt.textContent = b[0]; bt.addEventListener("click", b[1]); msgEl.querySelector(".k-actions").appendChild(bt); });
+    boardEl.appendChild(msgEl);
+  }
+  function hideMsg() { if (msgEl) { msgEl.remove(); msgEl = null; } }
+
+  function save() { K.store.set("game", { grid: grid, score: score, undos: undos, won: won, keepGoing: keepGoing, over: over, nextId: nextId }); }
+  function load() {
+    var d = K.store.get("game", null); if (!d || !d.grid) return false;
+    grid = d.grid; score = d.score; undos = d.undos; won = d.won; keepGoing = d.keepGoing; over = d.over; nextId = d.nextId || 1000; history = [];
+    grid.forEach(function (row) { row.forEach(function (t) { if (t) { t.isNew = false; t.merged = false; } }); });
+    return true;
+  }
+
+  K.on("key", function (code) {
+    var map = { ArrowUp: 0, KeyW: 0, ArrowRight: 1, KeyD: 1, ArrowDown: 2, KeyS: 2, ArrowLeft: 3, KeyA: 3 };
+    if (code in map) move(map[code]);
+    if (code === "KeyZ" || code === "KeyU") undo();
+  });
+  K.on("swipe", function (d) { move({ up: 0, right: 1, down: 2, left: 3 }[d]); });
+  document.getElementById("new").addEventListener("click", function () { K.sfx("select"); newGame(); });
+  undoBtn.addEventListener("click", undo);
+  window.addEventListener("resize", layout);
+
+  if (K.thumb) {
+    grid = [[{ id: 1, v: 2 }, { id: 2, v: 8 }, { id: 3, v: 32 }, { id: 4, v: 4 }], [null, { id: 5, v: 16 }, { id: 6, v: 128 }, { id: 7, v: 256 }], [{ id: 8, v: 2 }, null, { id: 9, v: 64 }, { id: 10, v: 1024 }], [null, null, { id: 11, v: 4 }, { id: 12, v: 2048 }]];
+    score = 20756; history = []; layout();
+  } else if (load()) { layout(); if (over) showMsg("No moves left", "Score " + score, [["Try again", newGame]]); }
+  else { grid = empty(); layout(); newGame(); }
+})();
+</script>
+</body>
+</html>

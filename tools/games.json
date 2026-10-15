@@ -1,0 +1,544 @@
+{
+  "categories": [
+    {
+      "slug": "action",
+      "name": "Action",
+      "icon": "bolt",
+      "blurb": "Fast reflexes, big moments and plenty of things to dodge."
+    },
+    {
+      "slug": "adventure",
+      "name": "Adventure",
+      "icon": "compass",
+      "blurb": "Explore, collect and find your way through new places."
+    },
+    {
+      "slug": "racing",
+      "name": "Racing",
+      "icon": "gauge",
+      "blurb": "Floor it, weave through traffic and chase the best time."
+    },
+    {
+      "slug": "horror",
+      "name": "Horror",
+      "icon": "ghost",
+      "blurb": "Dark corridors and something following you. Sound on."
+    },
+    {
+      "slug": "sports",
+      "name": "Sports",
+      "icon": "ball",
+      "blurb": "Shots, rallies and scores to beat."
+    },
+    {
+      "slug": "shooting",
+      "name": "Shooting",
+      "icon": "crosshair",
+      "blurb": "Aim, fire and survive the next wave."
+    },
+    {
+      "slug": "platformer",
+      "name": "Platformer",
+      "icon": "jump",
+      "blurb": "Run, jump and land it."
+    },
+    {
+      "slug": "puzzle",
+      "name": "Puzzle",
+      "icon": "puzzle",
+      "blurb": "Think a move ahead. No timer pressure unless you want it."
+    },
+    {
+      "slug": "multiplayer",
+      "name": "Multiplayer",
+      "icon": "users",
+      "blurb": "Play a friend on the same keyboard or screen."
+    },
+    {
+      "slug": "idle-clicker",
+      "name": "Idle and Clicker",
+      "icon": "cursor",
+      "blurb": "Click, upgrade and watch the numbers climb, even while you're away."
+    },
+    {
+      "slug": "minecraft-style",
+      "name": "Minecraft-style",
+      "icon": "cube",
+      "blurb": "Mine blocks, gather resources and build whatever you like."
+    },
+    {
+      "slug": "arcade",
+      "name": "Arcade",
+      "icon": "joystick",
+      "blurb": "Quick to learn, hard to put down. One more go."
+    },
+    {
+      "slug": "strategy",
+      "name": "Strategy",
+      "icon": "rook",
+      "blurb": "Plan, build and outsmart your opponent."
+    }
+  ],
+  "games": [
+    {
+      "slug": "neon-snake",
+      "title": "Neon Snake",
+      "cats": [
+        "arcade",
+        "puzzle"
+      ],
+      "aspect": "10/11",
+      "summary": "The classic snake game with glowing trails, bonus stars and a wrap-around mode.",
+      "about": "Steer the snake to eat pink orbs and grow longer. Every fifth orb drops a gold star worth extra points if you reach it before it fades. Choose Walls for the classic rules or Wrap around to slip through the edges of the board. The snake speeds up as it grows, so plan your turns.",
+      "controls": [
+        "Arrow keys or WASD to turn",
+        "Swipe or tap beside the snake's head on touch screens",
+        "P or Esc to pause, M to mute"
+      ],
+      "tags": [
+        "snake",
+        "classic",
+        "retro",
+        "high score"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "star-blaster",
+      "title": "Star Blaster",
+      "cats": [
+        "shooting",
+        "arcade",
+        "action"
+      ],
+      "aspect": "2/3",
+      "summary": "A vertical space shooter with power-ups, shields and a boss every fifth wave.",
+      "about": "Your ship fires automatically, so you can focus on flying. Waves of drones, divers, gunners and armoured tanks get tougher as you go, and every fifth wave brings a boss with its own bullet patterns. Grab P capsules to upgrade your gun up to five shots, S for a shield and hearts for extra lives.",
+      "controls": [
+        "Arrow keys or WASD to fly",
+        "Move the mouse to steer",
+        "Drag anywhere on touch screens"
+      ],
+      "tags": [
+        "space",
+        "shmup",
+        "bullet hell",
+        "boss"
+      ],
+      "mobile": true,
+      "featured": 3
+    },
+    {
+      "slug": "turbo-lanes",
+      "title": "Turbo Lanes",
+      "cats": [
+        "racing",
+        "arcade"
+      ],
+      "aspect": "2/3",
+      "summary": "Dodge traffic on a neon highway, collect coins and boost with nitro.",
+      "about": "Drive as far as you can down a four-lane highway that keeps getting faster. Weave between cars (some change lanes, so watch for their indicators), pick up coins, and squeeze past for close-call bonuses. Collect blue N cans to refill your nitro and hold boost for a burst of speed.",
+      "controls": [
+        "Left and right arrows or A and D to steer",
+        "Up arrow or Space for nitro",
+        "On-screen buttons on touch screens"
+      ],
+      "tags": [
+        "cars",
+        "driving",
+        "endless",
+        "traffic"
+      ],
+      "mobile": true,
+      "trending": 3
+    },
+    {
+      "slug": "pixel-peak",
+      "title": "Pixel Peak",
+      "cats": [
+        "platformer",
+        "adventure"
+      ],
+      "aspect": "16/9",
+      "summary": "Six hand-built levels of jumps, springs, moving platforms and stompable enemies.",
+      "about": "Guide your little runner to the flag at the end of each level. Jump on enemies to squash them, bounce off springs to reach high ledges, ride moving platforms over pits and touch checkpoints so you don't have to start over. Levels unlock as you beat them, and finishing all six from level one records your best time.",
+      "controls": [
+        "Left and right arrows or A and D to move",
+        "Space, Up or W to jump (hold to jump higher)",
+        "On-screen buttons on touch screens"
+      ],
+      "tags": [
+        "jump",
+        "levels",
+        "retro",
+        "speedrun"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "blocklands",
+      "title": "Blocklands",
+      "cats": [
+        "minecraft-style",
+        "adventure"
+      ],
+      "aspect": "16/9",
+      "summary": "A 2D block world to mine, craft and build in, with caves, ores and a day-night cycle.",
+      "about": "Every world is generated with hills, trees, caves and ores. Mine blocks to collect them, craft planks, torches, glass and bricks, and build anything you like. Torches light up caves at night, and diamonds hide deep underground. Your world saves in your browser automatically, so you can come back and keep building.",
+      "controls": [
+        "A and D or arrows to walk, W or Space to jump",
+        "Hold the left mouse button to mine, right-click to place",
+        "1 to 9 or the mouse wheel to choose a block, C to craft",
+        "On touch screens: buttons to move, MINE/BUILD to switch, tap and hold a block"
+      ],
+      "tags": [
+        "sandbox",
+        "mining",
+        "crafting",
+        "building"
+      ],
+      "mobile": true,
+      "featured": 1
+    },
+    {
+      "slug": "shadow-maze",
+      "title": "Shadow Maze",
+      "cats": [
+        "horror",
+        "adventure"
+      ],
+      "aspect": "16/9",
+      "summary": "Find three keys in a pitch-dark maze while something hunts you by sound.",
+      "about": "All you have is a flashlight with a draining battery. Collect three keys to unlock the exit, grab spare batteries, and listen to the heartbeat: it speeds up when the shadow gets close. Shining your light on it slows it down, but it never stops looking. Each floor is a bigger maze. Spooky, not gory.",
+      "controls": [
+        "WASD or arrows to move, Shift to run",
+        "Aim the flashlight with the mouse",
+        "Drag to move on touch screens"
+      ],
+      "tags": [
+        "scary",
+        "maze",
+        "flashlight",
+        "survival"
+      ],
+      "mobile": true,
+      "trending": 4
+    },
+    {
+      "slug": "hoop-star",
+      "title": "Hoop Star",
+      "cats": [
+        "sports"
+      ],
+      "aspect": "8/5",
+      "summary": "Drag, aim and shoot hoops against the clock. Swishes buy you extra time.",
+      "about": "Pull back from the ball and let go to shoot, with a dotted line showing your arc. Clean swishes score 3 and add 2 seconds, rim shots score 2, and three makes in a row doubles your points. After 20 points the hoop starts moving and the shots get longer.",
+      "controls": [
+        "Drag back from the ball with the mouse or a finger, then release"
+      ],
+      "tags": [
+        "basketball",
+        "physics",
+        "timed"
+      ],
+      "mobile": true,
+      "trending": 6
+    },
+    {
+      "slug": "neon-rally",
+      "title": "Neon Rally",
+      "cats": [
+        "multiplayer",
+        "sports",
+        "arcade"
+      ],
+      "aspect": "5/3",
+      "summary": "A paddle duel for one player against the computer or two players on one device.",
+      "about": "First to seven points wins. The ball speeds up with every hit, and where it strikes your paddle changes its angle. Play the computer on easy, normal or hard, or challenge a friend on the same keyboard or the same tablet, with one player on each half of the screen.",
+      "controls": [
+        "Player 1: W and S or the mouse",
+        "Player 2: Up and Down arrows",
+        "Touch screens: each player drags on their own half"
+      ],
+      "tags": [
+        "2 player",
+        "local multiplayer",
+        "classic",
+        "versus"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "four-up",
+      "title": "Four Up",
+      "cats": [
+        "strategy",
+        "multiplayer",
+        "puzzle"
+      ],
+      "aspect": "1/1",
+      "summary": "Drop discs and line up four in a row against a smart computer or a friend.",
+      "about": "Take turns dropping discs into the grid. Line up four across, down or diagonally to win. The computer looks several moves ahead on hard, so block its threats early. You can also pass the device back and forth for a two-player game.",
+      "controls": [
+        "Click or tap a column",
+        "Left and right arrows to choose, Space to drop",
+        "Number keys 1 to 7 for quick drops"
+      ],
+      "tags": [
+        "board game",
+        "2 player",
+        "ai",
+        "turn based"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "neon-2048",
+      "title": "Neon 2048",
+      "cats": [
+        "puzzle"
+      ],
+      "aspect": "1/1",
+      "summary": "Slide and merge numbered tiles until you reach 2048.",
+      "about": "Every move slides all the tiles. Two tiles with the same number merge into one, doubling it. A new tile appears after each move, so keep your biggest tile in a corner and don't fill the board. You get three undos per game, and your board is saved if you leave.",
+      "controls": [
+        "Arrow keys or WASD to slide",
+        "Swipe on touch screens",
+        "Z to undo"
+      ],
+      "tags": [
+        "numbers",
+        "merge",
+        "brain",
+        "relaxing"
+      ],
+      "mobile": true,
+      "trending": 5
+    },
+    {
+      "slug": "minefield",
+      "title": "Minefield",
+      "cats": [
+        "puzzle",
+        "strategy"
+      ],
+      "aspect": "4/3",
+      "summary": "Clear the board without hitting a mine, using the numbers as clues.",
+      "about": "Each number tells you how many mines touch that square. Flag the squares you're sure about and clear the rest. Your first click is always safe, and clicking a number that already has all its flags clears around it. Three board sizes, with best times saved for each.",
+      "controls": [
+        "Click to reveal",
+        "Right-click, long-press or Flag mode to place a flag",
+        "F to flag the focused square"
+      ],
+      "tags": [
+        "logic",
+        "classic",
+        "mines",
+        "timed"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "memory-match",
+      "title": "Memory Match",
+      "cats": [
+        "puzzle"
+      ],
+      "aspect": "4/3",
+      "summary": "Flip cards and find every matching pair in as few moves as you can.",
+      "about": "Turn over two cards at a time. Matching pairs stay face up; anything else flips back. Finish with fewer moves to earn three stars. Start with 12 cards and work up to 30.",
+      "controls": [
+        "Click or tap a card to flip it",
+        "Tab and Enter work too"
+      ],
+      "tags": [
+        "cards",
+        "memory",
+        "pairs",
+        "kids"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "crystal-clicker",
+      "title": "Crystal Clicker",
+      "cats": [
+        "idle-clicker"
+      ],
+      "aspect": "16/10",
+      "summary": "Click the crystal, hire drones and miners, and grow your gem empire.",
+      "about": "Every click mines gems. Spend them on drones, miners, drills and lasers that mine for you every second, then on upgrades that multiply everything. Golden geodes appear now and then for a big bonus or a seven-times gem rush. Progress saves automatically and you keep earning at half speed for up to two hours while you're away.",
+      "controls": [
+        "Click or tap the crystal",
+        "Click items in the shop to buy them",
+        "Space or Enter clicks the focused crystal"
+      ],
+      "tags": [
+        "idle",
+        "incremental",
+        "upgrades",
+        "clicker"
+      ],
+      "mobile": true,
+      "trending": 7
+    },
+    {
+      "slug": "neon-breaker",
+      "title": "Neon Breaker",
+      "cats": [
+        "arcade"
+      ],
+      "aspect": "8/9",
+      "summary": "Smash every brick with a bouncing ball. Grab capsules for multi-ball and lasers.",
+      "about": "Keep the ball in play and break all the bricks to clear the level. Where the ball hits your paddle sets its angle. Some bricks take two hits, steel bricks never break, and dotted bricks drop capsules: W for a wide paddle, M for multi-ball, S to slow the ball, L for lasers and + for an extra life.",
+      "controls": [
+        "Move the mouse or a finger to slide the paddle",
+        "Left and right arrows also work",
+        "Click, tap or Space to launch and fire lasers"
+      ],
+      "tags": [
+        "breakout",
+        "bricks",
+        "ball",
+        "retro"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "sky-hopper",
+      "title": "Sky Hopper",
+      "cats": [
+        "arcade"
+      ],
+      "aspect": "9/16",
+      "summary": "Tap to flap through neon pillars. How far can you get?",
+      "about": "One button, endless pillars. Each tap gives you a lift, and gravity does the rest. Squeeze through the gaps to score, and earn bronze at 10, silver at 25 and gold at 50. Past 15 points, some pillars start to move.",
+      "controls": [
+        "Click, tap, Space or Up to flap"
+      ],
+      "tags": [
+        "one button",
+        "tap",
+        "endless",
+        "flappy"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "neon-runner",
+      "title": "Neon Runner",
+      "cats": [
+        "action",
+        "platformer"
+      ],
+      "aspect": "16/9",
+      "summary": "An endless runner with double jumps, slides, drones and pits.",
+      "about": "Your runner never stops, and the speed keeps rising. Jump blocks and spikes, double jump over wide pits, slide under yellow bars and time your moves around patrolling drones. Coins along the way add to your score.",
+      "controls": [
+        "Space or Up to jump, press again in the air to double jump",
+        "Down to slide",
+        "Swipe or on-screen buttons on touch screens"
+      ],
+      "tags": [
+        "endless runner",
+        "parkour",
+        "speed",
+        "jump"
+      ],
+      "mobile": true,
+      "trending": 2
+    },
+    {
+      "slug": "arena-survivor",
+      "title": "Arena Survivor",
+      "cats": [
+        "action",
+        "shooting"
+      ],
+      "aspect": "16/9",
+      "summary": "Survive a growing swarm, level up and build an unstoppable set of upgrades.",
+      "about": "You fire at the nearest enemy automatically, so staying alive is all about movement. Defeated enemies drop gems; collect enough to level up and pick one of three upgrades, from split shots and piercing rounds to spinning orbit blades. A boss arrives every two and a half minutes.",
+      "controls": [
+        "WASD or arrows to move",
+        "Drag anywhere on touch screens",
+        "1, 2 or 3 to choose an upgrade"
+      ],
+      "tags": [
+        "survivors",
+        "roguelite",
+        "auto shooter",
+        "waves"
+      ],
+      "mobile": true,
+      "trending": 1
+    },
+    {
+      "slug": "dungeon-dash",
+      "title": "Dungeon Dash",
+      "cats": [
+        "adventure",
+        "action"
+      ],
+      "aspect": "3/2",
+      "summary": "Explore randomly built dungeon floors, fight monsters and find the key to go deeper.",
+      "about": "Every floor is a new layout of rooms and corridors hidden in darkness. Find the key, then the stairs, while slimes, bats and skeletons try to stop you. Open chests for gold or an extra heart and see how deep you can get.",
+      "controls": [
+        "WASD or arrows to move",
+        "Space or click to swing your sword (the mouse aims)",
+        "Joystick and HIT button on touch screens"
+      ],
+      "tags": [
+        "dungeon crawler",
+        "roguelike",
+        "sword",
+        "rpg"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "neon-defense",
+      "title": "Neon Defense",
+      "cats": [
+        "strategy"
+      ],
+      "aspect": "16/9",
+      "summary": "Build and upgrade towers to stop 25 waves from reaching your core.",
+      "about": "Place towers on free squares beside the path. Blasters fire fast, Frost towers slow everything nearby, Cannons hit groups with splash damage and Lasers lock on and heat up. Earn money from each defeat and wave, upgrade towers twice, and keep enough firepower for the boss waves at 10 and 20.",
+      "controls": [
+        "Click a tower in the side panel, then a free square",
+        "1 to 4 to pick a tower, Space for the next wave",
+        "Click a tower to upgrade or sell it, F to toggle 2x speed"
+      ],
+      "tags": [
+        "tower defense",
+        "td",
+        "waves",
+        "planning"
+      ],
+      "mobile": true
+    },
+    {
+      "slug": "neon-drift",
+      "title": "Neon Drift",
+      "cats": [
+        "racing"
+      ],
+      "aspect": "16/9",
+      "summary": "A top-down three-lap race against three rivals. Drift the corners to win.",
+      "about": "Line up on the grid, wait for GO and race three computer drivers over three laps. Hold drift to slide round tight corners without losing speed, stay off the grass, and bump rivals out of your way. Your best race time is saved.",
+      "controls": [
+        "Up to drive, Down to brake",
+        "Left and right to steer, Space to drift",
+        "Touch screens: the car speeds up by itself, use the buttons to steer and drift"
+      ],
+      "tags": [
+        "drift",
+        "laps",
+        "top down",
+        "cars"
+      ],
+      "mobile": true,
+      "featured": 2
+    }
+  ]
+}

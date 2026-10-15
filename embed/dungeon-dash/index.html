@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Dungeon Dash | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="dungeon-dash" style="--game-bg:#06050f">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var ctx = K.canvas(720, 480, { fill: { minW: 520, maxW: 960 } });
+  var fx = new K.Particles();
+  var joy = K.joystick({ zone: 0.55 });
+  var btns = K.buttons([{ id: "attack", label: "HIT", side: "right", size: 86, aria: "Attack" }]);
+  var T = 32, MW = 48, MH = 36;
+  var map, seen, vis, rooms, P, enemies, items, stairs, floorN, coins, hasKey, dead, deadT, t = 0, visT = 0, cam = { x: 0, y: 0 }, mouseAim = false, msg = "", msgT = 0, floatTexts = [];
+
+  /* ---------- generation ---------- */
+  function carve(x0, y0, w, h) { for (var y = y0; y < y0 + h; y++) for (var x = x0; x < x0 + w; x++) if (x > 0 && y > 0 && x < MW - 1 && y < MH - 1) map[y][x] = 0; }
+  function gen() {
+    map = []; seen = []; vis = [];
+    for (var y = 0; y < MH; y++) { map.push(new Array(MW).fill(1)); seen.push(new Array(MW).fill(0)); vis.push(new Array(MW).fill(0)); }
+    rooms = [];
+    for (var tries = 0; tries < 300 && rooms.length < 11; tries++) {
+      var w = K.randi(5, 10), h = K.randi(4, 8), x = K.randi(1, MW - w - 2), yy = K.randi(1, MH - h - 2);
+      if (rooms.some(function (r) { return x < r.x + r.w + 2 && x + w + 2 > r.x && yy < r.y + r.h + 2 && yy + h + 2 > r.y; })) continue;
+      rooms.push({ x: x, y: yy, w: w, h: h, cx: Math.floor(x + w / 2), cy: Math.floor(yy + h / 2) });
+    }
+    rooms.sort(function (a, b) { return a.cx - b.cx; });
+    rooms.forEach(function (r) { carve(r.x, r.y, r.w, r.h); });
+    for (var i = 1; i < rooms.length; i++) {
+      var a = rooms[i - 1], b = rooms[i];
+      if (Math.random() < 0.5) { carve(Math.min(a.cx, b.cx), a.cy, Math.abs(a.cx - b.cx) + 1, 2); carve(b.cx, Math.min(a.cy, b.cy), 2, Math.abs(a.cy - b.cy) + 2); }
+      else { carve(a.cx, Math.min(a.cy, b.cy), 2, Math.abs(a.cy - b.cy) + 1); carve(Math.min(a.cx, b.cx), b.cy, Math.abs(a.cx - b.cx) + 2, 2); }
+    }
+    // a couple of loops
+    for (i = 0; i < 2; i++) { var r1 = K.pick(rooms), r2 = K.pick(rooms); if (r1 !== r2) { carve(Math.min(r1.cx, r2.cx), r1.cy, Math.abs(r1.cx - r2.cx) + 1, 1); carve(r2.cx, Math.min(r1.cy, r2.cy), 1, Math.abs(r1.cy - r2.cy) + 1); } }
+  }
+  function freeSpot(r) { for (var i = 0; i < 50; i++) { var x = K.randi(r.x + 1, r.x + r.w - 2), y = K.randi(r.y + 1, r.y + r.h - 2); if (!map[y][x] && !items.some(function (it) { return it.tx === x && it.ty === y; })) return { x: x, y: y }; } return { x: r.cx, y: r.cy }; }
+  function newFloor() {
+    gen(); items = []; enemies = [];
+    var start = rooms[0];
+    var far = rooms.slice(1).sort(function (a, b) { return K.dist(b.cx, b.cy, start.cx, start.cy) - K.dist(a.cx, a.cy, start.cx, start.cy); })[0];
+    stairs = { x: far.cx, y: far.cy };
+    var keyRoom = K.pick(rooms.filter(function (r) { return r !== start && r !== far; })) || far;
+    var ks = freeSpot(keyRoom); items.push({ k: "key", tx: ks.x, ty: ks.y });
+    rooms.forEach(function (r) {
+      if (r === start) return;
+      var n = K.randi(0, 2) + Math.floor(floorN / 2);
+      for (var i = 0; i < n; i++) {
+        var s = freeSpot(r), roll = Math.random(), type = roll < 0.45 ? "slime" : roll < 0.75 ? "bat" : (floorN >= 2 ? "skel" : "slime");
+        addEnemy(type, s.x * T + T / 2, s.y * T + T / 2);
+      }
+      if (Math.random() < 0.45) { var c = freeSpot(r); items.push({ k: "chest", tx: c.x, ty: c.y }); }
+      for (var j = 0; j < K.randi(1, 3); j++) { var g = freeSpot(r); items.push({ k: "coin", tx: g.x, ty: g.y }); }
+      if (Math.random() < 0.25) { var hh = freeSpot(r); items.push({ k: "heart", tx: hh.x, ty: hh.y }); }
+    });
+    P.x = start.cx * T + T / 2; P.y = start.cy * T + T / 2; hasKey = false;
+    msg = "Floor " + floorN + ": find the key, then the stairs"; msgT = 3;
+    updateVis(true);
+  }
+  function addEnemy(type, x, y) {
+    var d = { slime: { hp: 2, sp: 55, r: 11, col: C.green }, bat: { hp: 1, sp: 105, r: 9, col: C.purple }, skel: { hp: 3, sp: 78, r: 12, col: "#e8e4ff" } }[type];
+    var mul = 1 + (floorN - 1) * 0.12;
+    enemies.push({ type: type, x: x, y: y, hp: Math.ceil(d.hp * (floorN >= 4 ? 1.5 : 1)), sp: d.sp * mul, r: d.r, col: d.col, kx: 0, ky: 0, flash: 0, hop: Math.random(), awake: false, wand: Math.random() * 6 });
+  }
+
+  /* ---------- helpers ---------- */
+  function wall(tx, ty) { return tx < 0 || ty < 0 || tx >= MW || ty >= MH || map[ty][tx] === 1; }
+  function moveBody(o, dx, dy) {
+    o.x += dx; if (hits(o)) { o.x -= dx; if (o.kx) o.kx = 0; }
+    o.y += dy; if (hits(o)) { o.y -= dy; if (o.ky) o.ky = 0; }
+  }
+  function hits(o) { var r = o.r - 1; return wall(Math.floor((o.x - r) / T), Math.floor((o.y - r) / T)) || wall(Math.floor((o.x + r) / T), Math.floor((o.y - r) / T)) || wall(Math.floor((o.x - r) / T), Math.floor((o.y + r) / T)) || wall(Math.floor((o.x + r) / T), Math.floor((o.y + r) / T)); }
+  function los(ax, ay, bx, by) { var d = K.dist(ax, ay, bx, by), n = Math.ceil(d / 12); for (var i = 1; i < n; i++) if (wall(Math.floor((ax + (bx - ax) * i / n) / T), Math.floor((ay + (by - ay) * i / n) / T))) return false; return true; }
+  function updateVis(all) {
+    var R = 7, px = Math.floor(P.x / T), py = Math.floor(P.y / T);
+    for (var y = 0; y < MH; y++) vis[y].fill(0);
+    for (y = py - R; y <= py + R; y++) for (var x = px - R; x <= px + R; x++) {
+      if (x < 0 || y < 0 || x >= MW || y >= MH) continue;
+      if ((x - px) * (x - px) + (y - py) * (y - py) > R * R) continue;
+      var tx = x * T + T / 2, ty = y * T + T / 2, ddx = P.x - tx, ddy = P.y - ty, dd = Math.hypot(ddx, ddy) || 1;
+      var ok = wall(x, y) ? los(P.x, P.y, tx + ddx / dd * T * 0.45, ty + ddy / dd * T * 0.45) : los(P.x, P.y, tx, ty);
+      if (ok) { vis[y][x] = 1; seen[y][x] = 1; }
+    }
+  }
+  function float(x, y, s, col) { floatTexts.push({ x: x, y: y, s: s, col: col, t: 1 }); }
+
+  /* ---------- combat ---------- */
+  var swing = 0, swingCool = 0;
+  function attack() {
+    if (K.state !== "play" || dead || swingCool > 0) return;
+    swing = 0.18; swingCool = 0.34; K.sfx("shoot");
+    enemies.forEach(function (e) {
+      var dx = e.x - P.x, dy = e.y - P.y, d = Math.hypot(dx, dy); if (d > 46 + e.r) return;
+      var da = Math.atan2(Math.sin(Math.atan2(dy, dx) - P.face), Math.cos(Math.atan2(dy, dx) - P.face));
+      if (Math.abs(da) > 1.05 && d > 18) return;
+      e.hp--; e.flash = 1; e.kx = dx / (d || 1) * 380; e.ky = dy / (d || 1) * 380; e.awake = true; K.sfx("hit");
+      fx.burst(e.x, e.y, 8, { color: [e.col, "#fff"], speed: 140, life: 0.35 });
+      if (e.hp <= 0) {
+        e.dead = true; fx.burst(e.x, e.y, 20, { color: [e.col, "#fff"], speed: 200, life: 0.6 });
+        if (Math.random() < 0.35) items.push({ k: Math.random() < 0.25 ? "heart" : "coin", tx: Math.floor(e.x / T), ty: Math.floor(e.y / T) });
+      }
+    });
+    enemies = enemies.filter(function (e) { return !e.dead; });
+  }
+  K.on("key", function (c) { if (c === "Space" || c === "KeyJ" || c === "KeyK") attack(); });
+  K.on("button", function (id) { if (id === "attack") attack(); });
+  K.on("down", function (p, e) { if (e.pointerType === "mouse") { mouseAim = true; P.face = Math.atan2(p.y + cam.y - P.y, p.x + cam.x - P.x); attack(); } });
+  K.on("move", function (p, e) { if (e.pointerType === "mouse" && K.state === "play" && P) { mouseAim = true; P.face = Math.atan2(p.y + cam.y - P.y, p.x + cam.x - P.x); } });
+
+  function hurtPlayer(n, from) {
+    if (P.inv > 0) return;
+    P.hp -= n; P.inv = 0.9; K.sfx("hit"); K.shake(7);
+    var dx = P.x - from.x, dy = P.y - from.y, d = Math.hypot(dx, dy) || 1; P.kx = dx / d * 300; P.ky = dy / d * 300;
+    if (P.hp <= 0) { dead = true; deadT = 1.2; K.sfx("lose"); fx.burst(P.x, P.y, 40, { color: [C.blue, "#fff"], speed: 220, life: 0.9 }); }
+  }
+
+  function update(dt) {
+    t += dt; fx.update(dt); if (msgT > 0) msgT -= dt;
+    floatTexts.forEach(function (f) { f.t -= dt; f.y -= 30 * dt; }); floatTexts = floatTexts.filter(function (f) { return f.t > 0; });
+    if (K.state !== "play") return;
+    if (dead) { deadT -= dt; if (deadT <= 0) K.over({ score: coins + (floorN - 1) * 50, extra: '<div class="k-best">Reached floor ' + floorN + " with " + coins + " gold</div>", onRestart: start }); return; }
+    swing = Math.max(0, swing - dt); swingCool = Math.max(0, swingCool - dt); P.inv = Math.max(0, P.inv - dt);
+    var ax = K.axis();
+    if ((ax.x || ax.y) && (!mouseAim || joy.active || K.held("left") || K.held("right") || K.held("up") || K.held("down"))) { P.face = Math.atan2(ax.y, ax.x); if (!joy.active) mouseAim = mouseAim && !(K.held("left") || K.held("right") || K.held("up") || K.held("down")); }
+    moveBody(P, (ax.x * 155 + P.kx) * dt, (ax.y * 155 + P.ky) * dt);
+    P.kx *= Math.pow(0.001, dt); P.ky *= Math.pow(0.001, dt);
+    if (ax.x || ax.y) P.walk += dt * 10;
+    visT -= dt; if (visT <= 0) { visT = 0.12; updateVis(); }
+
+    // enemies
+    enemies.forEach(function (e) {
+      e.flash = Math.max(0, e.flash - dt * 5);
+      var dx = P.x - e.x, dy = P.y - e.y, d = Math.hypot(dx, dy) || 1;
+      if (!e.awake && d < T * 7 && los(e.x, e.y, P.x, P.y)) e.awake = true;
+      var vx = 0, vy = 0;
+      if (e.awake) {
+        if (e.type === "slime") { e.hop += dt * 2; var go = (e.hop % 1) < 0.5; vx = go ? dx / d * e.sp * 1.6 : 0; vy = go ? dy / d * e.sp * 1.6 : 0; }
+        else if (e.type === "bat") { e.wand += dt * 5; vx = dx / d * e.sp + Math.cos(e.wand) * 80; vy = dy / d * e.sp + Math.sin(e.wand * 1.3) * 80; }
+        else { vx = dx / d * e.sp; vy = dy / d * e.sp; }
+      } else { e.wand += dt; vx = Math.cos(e.wand) * 18; vy = Math.sin(e.wand * 0.7) * 18; }
+      moveBody(e, (vx + e.kx) * dt, (vy + e.ky) * dt);
+      e.kx *= Math.pow(0.002, dt); e.ky *= Math.pow(0.002, dt);
+      if (d < e.r + 11) hurtPlayer(1, e);
+    });
+    // items
+    var ptx = Math.floor(P.x / T), pty = Math.floor(P.y / T);
+    items = items.filter(function (it) {
+      var ix = it.tx * T + T / 2, iy = it.ty * T + T / 2;
+      if (K.dist(ix, iy, P.x, P.y) > 20) return true;
+      if (it.k === "coin") { var v = K.randi(1, 3) + floorN; coins += v; K.sfx("coin"); float(ix, iy, "+" + v, C.yellow); }
+      else if (it.k === "heart") { if (P.hp >= P.max) return true; P.hp = Math.min(P.max, P.hp + 2); K.sfx("power"); float(ix, iy, "+1 heart", C.pink); }
+      else if (it.k === "key") { hasKey = true; K.sfx("win"); msg = "Got the key! Now find the stairs"; msgT = 2.5; }
+      else if (it.k === "chest") {
+        K.sfx("power"); fx.burst(ix, iy, 24, { color: [C.yellow, "#fff"], speed: 170, life: 0.6 });
+        if (Math.random() < 0.3 && P.max < 12) { P.max += 2; P.hp += 2; float(ix, iy, "Max hearts +1", C.pink); }
+        else { var g = K.randi(8, 18) + floorN * 3; coins += g; float(ix, iy, "+" + g + " gold", C.yellow); }
+      }
+      return false;
+    });
+    if (ptx === stairs.x && pty === stairs.y) {
+      if (hasKey) { floorN++; K.sfx("win"); newFloor(); }
+      else if (msgT <= 0.2) { msg = "The stairs are locked. Find the key first"; msgT = 2; K.sfx("error"); }
+    }
+    cam.x = P.x - K.W / 2; cam.y = P.y - K.H / 2;
+  }
+
+  /* ---------- draw ---------- */
+  function draw(ctx) {
+    if (!map) return;
+    var W = K.W, H = K.H;
+    ctx.save(); K.applyShake(ctx, 1 / 60);
+    ctx.fillStyle = "#06050f"; ctx.fillRect(-20, -20, W + 40, H + 40);
+    ctx.save(); ctx.translate(-Math.round(cam.x), -Math.round(cam.y));
+    var x0 = Math.max(0, Math.floor(cam.x / T)), y0 = Math.max(0, Math.floor(cam.y / T)), x1 = Math.min(MW - 1, Math.ceil((cam.x + W) / T)), y1 = Math.min(MH - 1, Math.ceil((cam.y + H) / T));
+    for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) {
+      if (!seen[y][x]) continue;
+      var px = x * T, py = y * T;
+      if (map[y][x]) {
+        ctx.fillStyle = "#2c2558"; ctx.fillRect(px, py, T, T);
+        if (!wall(x, y + 1)) { ctx.fillStyle = "#463b86"; ctx.fillRect(px, py + T - 10, T, 10); ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(px + (y % 2 ? 0 : 16), py + T - 10, 1, 10); }
+        ctx.fillStyle = "rgba(255,255,255,.04)"; ctx.fillRect(px, py, T, 2);
+      } else {
+        ctx.fillStyle = (x + y) % 2 ? "#17142e" : "#1a1733"; ctx.fillRect(px, py, T, T);
+        if ((x * 13 + y * 7) % 11 === 0) { ctx.fillStyle = "rgba(255,255,255,.05)"; ctx.fillRect(px + 8, py + 10, 6, 3); }
+      }
+    }
+    // fog over remembered-but-not-visible tiles
+    ctx.fillStyle = "rgba(6,5,15,.55)";
+    for (y = y0; y <= y1; y++) for (x = x0; x <= x1; x++) if (seen[y][x] && !vis[y][x]) ctx.fillRect(x * T, y * T, T, T);
+    // stairs
+    if (seen[stairs.y][stairs.x]) {
+      var sx = stairs.x * T, sy = stairs.y * T;
+      for (var s = 0; s < 4; s++) { ctx.fillStyle = "rgba(" + (40 + s * 20) + "," + (30 + s * 15) + "," + (90 + s * 30) + ",1)"; ctx.fillRect(sx + 2 + s * 3, sy + 2 + s * 7, T - 4 - s * 6, 7); }
+      ctx.strokeStyle = hasKey ? C.green : C.muted; K.glow(ctx, hasKey ? C.green : "transparent", 14); ctx.lineWidth = 2; ctx.strokeRect(sx + 1, sy + 1, T - 2, T - 2); K.noGlow(ctx);
+    }
+    // items
+    items.forEach(function (it) {
+      if (!vis[it.ty][it.tx]) return;
+      var ix = it.tx * T + T / 2, iy = it.ty * T + T / 2 + Math.sin(t * 3 + it.tx) * 2;
+      if (it.k === "coin") { K.glow(ctx, C.yellow, 10); ctx.fillStyle = C.yellow; ctx.beginPath(); ctx.arc(ix, iy, 6, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx); }
+      else if (it.k === "heart") heart(ctx, ix, iy, 9, C.pink, 1);
+      else if (it.k === "key") { K.glow(ctx, C.yellow, 16); ctx.strokeStyle = C.yellow; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(ix - 5, iy, 5, 0, Math.PI * 2); ctx.moveTo(ix, iy); ctx.lineTo(ix + 11, iy); ctx.lineTo(ix + 11, iy + 5); ctx.moveTo(ix + 7, iy); ctx.lineTo(ix + 7, iy + 4); ctx.stroke(); K.noGlow(ctx); }
+      else if (it.k === "chest") { ctx.fillStyle = "#8a5a2b"; ctx.fillRect(ix - 11, iy - 7, 22, 15); ctx.fillStyle = "#b07a3a"; ctx.fillRect(ix - 11, iy - 9, 22, 6); ctx.fillStyle = C.yellow; ctx.fillRect(ix - 2, iy - 4, 4, 5); }
+    });
+    // enemies
+    enemies.forEach(function (e) {
+      var tx = Math.floor(e.x / T), ty = Math.floor(e.y / T); if (!vis[ty] || !vis[ty][tx]) return;
+      ctx.save(); ctx.translate(e.x, e.y);
+      ctx.fillStyle = e.flash > 0 ? "#fff" : e.col;
+      if (e.type === "slime") { var sq = 1 + Math.sin(e.hop * Math.PI * 2) * 0.12; ctx.scale(1 / sq, sq); ctx.beginPath(); ctx.arc(0, 3, e.r, Math.PI, 0); ctx.lineTo(e.r, 8); ctx.lineTo(-e.r, 8); ctx.fill(); }
+      else if (e.type === "bat") { var fl = Math.sin(t * 20) * 6; ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(-14, -6 + fl); ctx.lineTo(-6, 4); ctx.lineTo(0, 2); ctx.lineTo(6, 4); ctx.lineTo(14, -6 + fl); ctx.fill(); ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill(); }
+      else { ctx.fillRect(-7, -12, 14, 12); ctx.fillRect(-5, 0, 10, 10); ctx.fillStyle = "#14102c"; ctx.fillRect(-4, -9, 3, 3); ctx.fillRect(1, -9, 3, 3); }
+      ctx.fillStyle = "#14102c"; if (e.type !== "skel") { ctx.fillRect(-4, -2, 2, 3); ctx.fillRect(2, -2, 2, 3); }
+      ctx.restore();
+    });
+    // player
+    if (!dead && (P.inv <= 0 || Math.floor(t * 16) % 2)) {
+      ctx.save(); ctx.translate(P.x, P.y);
+      ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(0, 11, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
+      var bob = Math.sin(P.walk) * 1.5;
+      K.glow(ctx, C.blue, 12); ctx.fillStyle = C.blue; K.roundRect(ctx, -9, -10 + bob, 18, 20, 6); ctx.fill(); K.noGlow(ctx);
+      ctx.fillStyle = "#e8b58f"; ctx.fillRect(-6, -8 + bob, 12, 8);
+      var fx2 = Math.cos(P.face), fy2 = Math.sin(P.face);
+      ctx.fillStyle = "#14102c"; ctx.fillRect(-3 + fx2 * 3, -6 + bob + Math.max(0, fy2) * 2, 2, 3); ctx.fillRect(2 + fx2 * 3, -6 + bob + Math.max(0, fy2) * 2, 2, 3);
+      ctx.fillStyle = C.purple; ctx.fillRect(-9, -12 + bob, 18, 4);
+      // sword
+      var sa = P.face + (swing > 0 ? (0.5 - swing / 0.18) * 2.1 : 0.9);
+      ctx.rotate(sa); ctx.fillStyle = "#cfd6ff"; ctx.fillRect(10, -2, swing > 0 ? 26 : 16, 4); ctx.fillStyle = C.yellow; ctx.fillRect(8, -5, 3, 10);
+      ctx.restore();
+      if (swing > 0) { ctx.strokeStyle = "rgba(200,230,255," + swing * 4 + ")"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(P.x, P.y, 38, P.face - 1.05, P.face + 1.05); ctx.stroke(); }
+    }
+    fx.draw(ctx);
+    floatTexts.forEach(function (f) { ctx.globalAlpha = Math.min(1, f.t * 2); K.text(ctx, f.s, f.x, f.y, { size: 14, color: f.col, align: "center", stroke: "rgba(0,0,0,.6)", strokeWidth: 3 }); ctx.globalAlpha = 1; });
+    ctx.restore();
+    // vignette
+    var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.7); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.6)");
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    // HUD
+    for (var h = 0; h < P.max / 2; h++) { var full = P.hp - h * 2; heart(ctx, 22 + h * 24, 22, 9, full >= 2 ? C.pink : full === 1 ? "#ff9de9" : "rgba(255,255,255,.18)", 1); }
+    K.text(ctx, "Floor " + floorN, 14, 50, { size: 15, color: "#fff" });
+    K.text(ctx, "● " + coins, 90, 50, { size: 15, color: C.yellow });
+    if (hasKey) K.text(ctx, "Key", 160, 50, { size: 15, color: C.green });
+    if (msgT > 0) { ctx.globalAlpha = Math.min(1, msgT); K.text(ctx, msg, W / 2, H - 34, { size: 17, color: "#fff", align: "center", stroke: "rgba(0,0,0,.7)", strokeWidth: 4 }); ctx.globalAlpha = 1; }
+    ctx.restore();
+  }
+  function heart(ctx, x, y, s, col, a) {
+    ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x, y + s * 0.9);
+    ctx.bezierCurveTo(x - s * 1.4, y - s * 0.1, x - s * 0.6, y - s * 1.1, x, y - s * 0.35); ctx.bezierCurveTo(x + s * 0.6, y - s * 1.1, x + s * 1.4, y - s * 0.1, x, y + s * 0.9); ctx.fill(); ctx.restore();
+  }
+
+  function start() {
+    P = { x: 0, y: 0, r: 11, hp: 6, max: 6, face: 0, inv: 0, kx: 0, ky: 0, walk: 0 };
+    floorN = 1; coins = 0; dead = false; fx.clear(); floatTexts = []; newFloor(); K.state = "play";
+    if (K.thumb) {
+      K.thumbTime = 0.1; for (var y = 0; y < MH; y++) for (var x = 0; x < MW; x++) if (K.dist(x, y, P.x / T, P.y / T) < 9) seen[y][x] = 1;
+      var r = rooms[0]; addEnemy("slime", P.x + 50, P.y + 20); addEnemy("bat", P.x - 60, P.y - 30); enemies.forEach(function (e) { e.x = K.clamp(e.x, r.x * T + 16, (r.x + r.w) * T - 16); e.y = K.clamp(e.y, r.y * T + 16, (r.y + r.h) * T - 16); });
+      items.push({ k: "chest", tx: r.x + 1, ty: r.y + 1 }, { k: "coin", tx: r.cx + 1, ty: r.cy - 1 }); swing = 0.09; P.face = 0.3; msgT = 0; updateVis(true); coins = 37;
+      for (y = 0; y < MH; y++) for (x = 0; x < MW; x++) if (seen[y][x] && K.dist(x, y, P.x / T, P.y / T) < 8) vis[y][x] = 1;
+    }
+  }
+  K.onRestart = start;
+  P = { x: 0, y: 0, r: 11, hp: 6, max: 6, face: 0, inv: 0, kx: 0, ky: 0, walk: 0 }; floorN = 1; coins = 0; newFloor();
+  K.menu({ title: "Dungeon Dash", body: "Explore each floor, find the <b>key</b>, then take the <b>stairs</b> down. Open chests and fight slimes, bats and skeletons with your sword. Move with <kbd>WASD</kbd> or <kbd>Arrows</kbd>, attack with <kbd>Space</kbd> or a mouse click.", onStart: start });
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

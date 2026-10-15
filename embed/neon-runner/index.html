@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Neon Runner | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="neon-runner" style="--game-bg:#090626">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var H = 450, GY = 360;
+  var ctx = K.canvas(800, H, { fill: { minW: 620, maxW: 1000 } });
+  var fx = new K.Particles();
+  var touch = K.buttons([{ id: "slide", icon: "down", side: "left", aria: "Slide" }, { id: "jump", icon: "up", side: "right", size: 84, aria: "Jump" }]);
+  var pl, obs, coins, speed, dist, coinN, nextObs, dead, deadT, t = 0, scroll = 0, jumps;
+
+  function reset() {
+    pl = { x: 150, y: GY, vy: 0, h: 52, w: 26, ground: true, slide: 0, run: 0, dj: true };
+    obs = []; coins = []; speed = 380; dist = 0; coinN = 0; nextObs = 500; dead = false; deadT = 0; jumps = 0; fx.clear();
+  }
+  function jump() {
+    if (K.state !== "play" || dead) return;
+    if (pl.ground) { pl.vy = -800; pl.ground = false; pl.dj = true; pl.slide = 0; K.sfx("jump"); jumps++; }
+    else if (pl.dj) { pl.vy = -700; pl.dj = false; K.sfx("jump"); fx.burst(pl.x, pl.y, 12, { color: [C.cyan, C.purple], speed: 120, angle: Math.PI / 2, spread: 1.5, life: 0.4 }); }
+  }
+  function slide() { if (K.state !== "play" || dead) return; if (pl.ground) { pl.slide = 0.62; K.sfx("step"); } else pl.vy = Math.max(pl.vy, 700); }
+  K.on("key", function (c) { if (c === "Space" || c === "ArrowUp" || c === "KeyW") jump(); if (c === "ArrowDown" || c === "KeyS") slide(); });
+  K.on("button", function (id) { if (id === "jump") jump(); if (id === "slide") slide(); });
+  K.on("swipe", function (d) { if (d === "up") jump(); if (d === "down") slide(); });
+  K.on("tap", function (p, e) { if (e.pointerType === "mouse") jump(); });
+
+  function spawn() {
+    var x = K.W + 60, r = Math.random(), lvl = Math.min(1, dist / 30000);
+    if (r < 0.28) obs.push({ k: "block", x: x, w: 34, h: K.pick([40, 52, 64]) });
+    else if (r < 0.46) obs.push({ k: "bar", x: x, w: 80, top: 0, bot: GY - 44 });
+    else if (r < 0.62) { var gw = K.rand(110, 150 + lvl * 50); obs.push({ k: "gap", x: x, w: gw }); for (var i = 0; i < 4; i++) coins.push({ x: x + gw / 2 - 45 + i * 30, y: GY - 120 - Math.sin(i / 3 * Math.PI) * 30 }); }
+    else if (r < 0.8) obs.push({ k: "drone", x: x, w: 40, y: GY - K.pick([26, 52, 52]), ph: Math.random() * 6 });
+    else obs.push({ k: "spikes", x: x, w: K.rand(70, 120 + lvl * 40), h: 22 });
+    if (Math.random() < 0.5) { var cx = x + 220, cy = GY - K.pick([30, 30, 90]); for (var j = 0; j < 5; j++) coins.push({ x: cx + j * 32, y: cy }); }
+    nextObs = K.rand(330, 560) * (speed / 380) * (1 - lvl * 0.15);
+  }
+  function overGap(x) { for (var i = 0; i < obs.length; i++) { var o = obs[i]; if (o.k === "gap" && x > o.x + 6 && x < o.x + o.w - 6) return true; } return false; }
+  function die() {
+    if (dead) return; dead = true; deadT = 1.1; K.sfx("explode"); K.shake(14);
+    fx.burst(pl.x, pl.y - 20, 50, { color: [C.cyan, C.blue, C.purple, "#fff"], speed: 280, life: 0.9 });
+  }
+
+  function update(dt) {
+    t += dt; fx.update(dt);
+    var sp = K.state === "play" && !dead ? speed : (K.state === "play" ? 0 : 140);
+    scroll += sp * dt;
+    if (K.state !== "play") return;
+    if (dead) { deadT -= dt; if (deadT <= 0) K.over({ score: Math.floor(dist / 10) + coinN * 10, extra: '<div class="k-best">' + Math.floor(dist / 10) + " m and " + coinN + " coins</div>", onRestart: start }); return; }
+    dist += sp * dt; speed = Math.min(780, 380 + dist / 90);
+    nextObs -= sp * dt; if (nextObs <= 0) spawn();
+    // player
+    if (pl.slide > 0) { pl.slide -= dt; if ((K.held("down") || touch.slide) && pl.slide < 0.1) pl.slide = 0.1; }
+    var hh = pl.slide > 0 ? 28 : 52;
+    pl.h = K.lerp(pl.h, hh, Math.min(1, dt * 20));
+    pl.vy += (pl.vy < 0 && (K.held("jump") || touch.jump) ? 1900 : 2600) * dt;
+    pl.y += pl.vy * dt;
+    var onGround = pl.y >= GY && !overGap(pl.x);
+    if (onGround && pl.y - pl.vy * dt <= GY + 2) { pl.y = GY; pl.vy = 0; if (!pl.ground) { K.sfx("step"); fx.burst(pl.x, GY, 6, { color: ["#fff", C.cyan], speed: 80, angle: -Math.PI / 2, spread: 2, life: 0.3 }); } pl.ground = true; pl.dj = true; }
+    else pl.ground = false;
+    if (pl.y > H + 60) { die(); return; }
+    pl.run += dt * speed / 40;
+    // obstacles
+    var px0 = pl.x - pl.w / 2 + 4, px1 = pl.x + pl.w / 2 - 4, py0 = pl.y - pl.h + 4, py1 = pl.y - 2;
+    for (var i = obs.length - 1; i >= 0; i--) {
+      var o = obs[i]; o.x -= sp * dt * (o.k === "drone" ? 1.12 : 1);
+      if (o.x + o.w < -100) { obs.splice(i, 1); continue; }
+      var hit = false;
+      if (o.k === "block") hit = px1 > o.x && px0 < o.x + o.w && py1 > GY - o.h;
+      else if (o.k === "bar") hit = px1 > o.x && px0 < o.x + o.w && py0 < o.bot;
+      else if (o.k === "spikes") hit = px1 > o.x + 4 && px0 < o.x + o.w - 4 && py1 > GY - o.h + 6;
+      else if (o.k === "drone") { var dy = o.y + Math.sin(t * 4 + o.ph) * 6; hit = px1 > o.x - o.w / 2 && px0 < o.x + o.w / 2 && py1 > dy - 12 && py0 < dy + 12; }
+      if (hit) { die(); return; }
+    }
+    for (i = coins.length - 1; i >= 0; i--) {
+      var c = coins[i]; c.x -= sp * dt;
+      if (c.x < -30) { coins.splice(i, 1); continue; }
+      if (Math.abs(c.x - pl.x) < 22 && c.y > pl.y - pl.h - 12 && c.y < pl.y + 10) { coins.splice(i, 1); coinN++; K.sfx("coin"); fx.burst(c.x, c.y, 8, { color: [C.yellow, "#fff"], speed: 120, life: 0.35 }); }
+    }
+  }
+
+  function draw(ctx) {
+    var W = K.W;
+    ctx.save(); K.applyShake(ctx, 1 / 60);
+    var g = ctx.createLinearGradient(0, 0, 0, GY); g.addColorStop(0, "#0b0830"); g.addColorStop(1, "#3b1466");
+    ctx.fillStyle = g; ctx.fillRect(-20, -20, W + 40, H + 40);
+    // moon
+    K.glow(ctx, "#ff9de9", 40); ctx.fillStyle = "#ffb3ef"; ctx.beginPath(); ctx.arc(W * 0.78, 110, 46, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx);
+    ctx.fillStyle = "#3b1466"; ctx.beginPath(); ctx.arc(W * 0.78 + 18, 100, 40, 0, Math.PI * 2); ctx.fill();
+    // far towers
+    function layer(par, col, base, seed, maxH, win) {
+      var off = (scroll * par) % 90;
+      for (var i = -1; i < W / 90 + 2; i++) {
+        var idx = Math.floor(scroll * par / 90) + i, h = 40 + ((idx * 2654435761) >>> 0) % maxH, x = i * 90 - off;
+        ctx.fillStyle = col; ctx.fillRect(x, base - h, 70, h);
+        if (win) { ctx.fillStyle = idx % 2 ? "rgba(69,240,255,.35)" : "rgba(255,79,216,.3)"; for (var wy = base - h + 10; wy < base - 8; wy += 14) ctx.fillRect(x + 10 + (wy % 3) * 14, wy, 8, 5); }
+      }
+    }
+    layer(0.12, "#1d1150", GY, 1, 160, false); layer(0.3, "#140c3c", GY, 2, 110, true);
+    // ground
+    ctx.fillStyle = "#0d0726"; ctx.fillRect(0, GY, W, H - GY);
+    ctx.strokeStyle = "rgba(47,184,255,.28)"; ctx.lineWidth = 1.5;
+    for (var gx = -(scroll % 50); gx < W + 50; gx += 50) { ctx.beginPath(); ctx.moveTo(gx, GY); ctx.lineTo(W / 2 + (gx - W / 2) * 2.4, H); ctx.stroke(); }
+    for (var gl = 0; gl < 5; gl++) { var ly = GY + 8 + gl * gl * 5; ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(W, ly); ctx.stroke(); }
+    K.glow(ctx, C.blue, 14); ctx.fillStyle = C.blue; ctx.fillRect(0, GY - 2, W, 3); K.noGlow(ctx);
+    // obstacles
+    obs.forEach(function (o) {
+      if (o.k === "gap") { ctx.fillStyle = "#05030f"; ctx.fillRect(o.x, GY - 2, o.w, H - GY + 2); ctx.fillStyle = C.pink; K.glow(ctx, C.pink, 10); ctx.fillRect(o.x - 3, GY - 2, 3, 30); ctx.fillRect(o.x + o.w, GY - 2, 3, 30); K.noGlow(ctx); }
+      else if (o.k === "block") { K.glow(ctx, C.pink, 14); ctx.fillStyle = "#3a0d3a"; ctx.fillRect(o.x, GY - o.h, o.w, o.h); ctx.strokeStyle = C.pink; ctx.lineWidth = 3; ctx.strokeRect(o.x + 1.5, GY - o.h + 1.5, o.w - 3, o.h - 3); K.noGlow(ctx); ctx.strokeStyle = "rgba(255,79,216,.5)"; ctx.beginPath(); ctx.moveTo(o.x, GY - o.h); ctx.lineTo(o.x + o.w, GY); ctx.stroke(); }
+      else if (o.k === "bar") { ctx.fillStyle = "rgba(255,216,74,.12)"; ctx.fillRect(o.x, 0, o.w, o.bot); K.glow(ctx, C.yellow, 16); ctx.fillStyle = C.yellow; ctx.fillRect(o.x - 6, o.bot - 10, o.w + 12, 10); K.noGlow(ctx); ctx.fillStyle = "#1a1405"; for (var s = 0; s < 6; s++) ctx.fillRect(o.x - 4 + s * 16, o.bot - 8, 8, 6); }
+      else if (o.k === "spikes") { K.glow(ctx, C.red, 12); ctx.fillStyle = C.red; ctx.beginPath(); var n = Math.floor(o.w / 14); for (var k = 0; k < n; k++) { var sx = o.x + k * (o.w / n); ctx.moveTo(sx, GY); ctx.lineTo(sx + o.w / n / 2, GY - o.h); ctx.lineTo(sx + o.w / n, GY); } ctx.fill(); K.noGlow(ctx); }
+      else if (o.k === "drone") {
+        var dy = o.y + Math.sin(t * 4 + o.ph) * 6;
+        K.glow(ctx, C.orange, 14); ctx.fillStyle = C.orange; K.roundRect(ctx, o.x - 20, dy - 10, 40, 20, 8); ctx.fill(); K.noGlow(ctx);
+        ctx.fillStyle = "#1a0b05"; ctx.fillRect(o.x - 12, dy - 4, 24, 8); ctx.fillStyle = "#fff"; ctx.fillRect(o.x - 9 + Math.sin(t * 6) * 4, dy - 2, 5, 4);
+        ctx.strokeStyle = "rgba(255,154,61,.8)"; ctx.lineWidth = 2; var sp2 = Math.sin(t * 40) * 14; ctx.beginPath(); ctx.moveTo(o.x - sp2, dy - 14); ctx.lineTo(o.x + sp2, dy - 14); ctx.stroke();
+      }
+    });
+    coins.forEach(function (c) { var sx = Math.abs(Math.cos(t * 5 + c.x * 0.03)); K.glow(ctx, C.yellow, 12); ctx.fillStyle = C.yellow; ctx.beginPath(); ctx.ellipse(c.x, c.y, 9 * sx + 2, 10, 0, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx); });
+    // player
+    if (!dead) {
+      ctx.save(); ctx.translate(pl.x, pl.y);
+      var h = pl.h, sl = pl.slide > 0;
+      for (var tr = 1; tr <= 3; tr++) { ctx.fillStyle = "rgba(47,184,255," + (0.12 / tr) + ")"; K.roundRect(ctx, -pl.w / 2 - tr * 10, -h, pl.w, h, 8); ctx.fill(); }
+      K.glow(ctx, C.cyan, 16);
+      var pg = ctx.createLinearGradient(0, -h, 0, 0); pg.addColorStop(0, "#c9f6ff"); pg.addColorStop(1, C.purple);
+      ctx.fillStyle = pg; K.roundRect(ctx, -pl.w / 2, -h + (sl ? 0 : 12), pl.w, h - (sl ? 0 : 12), 8); ctx.fill();
+      if (!sl) { ctx.beginPath(); ctx.arc(0, -h + 8, 10, 0, Math.PI * 2); ctx.fill(); }
+      K.noGlow(ctx);
+      ctx.fillStyle = "#0b1030"; ctx.fillRect(sl ? 2 : 1, -h + (sl ? 6 : 4), 9, 5);
+      if (pl.ground && !sl) { var lg = Math.sin(pl.run) * 9; ctx.strokeStyle = C.cyan; ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(-4, -8); ctx.lineTo(-4 + lg, 4); ctx.moveTo(4, -8); ctx.lineTo(4 - lg, 4); ctx.stroke(); }
+      ctx.restore();
+    }
+    fx.draw(ctx);
+    // HUD
+    var sc = Math.floor(dist / 10) + coinN * 10;
+    K.text(ctx, K.fmt(sc), 16, 28, { size: 26, color: "#fff", glow: 10, glowColor: C.blue });
+    K.text(ctx, Math.floor(dist / 10) + " m   ● " + coinN, 16, 54, { size: 13, color: C.muted, family: "body", weight: 600 });
+    if (K.state === "play" && dist < 900) K.text(ctx, K.isTouch ? "Tap ▲ to jump (twice for a double jump), ▼ to slide" : "Space to jump (twice for a double jump), ↓ to slide", W / 2, 120, { size: 15, color: "#fff", align: "center", family: "body", weight: 600 });
+    ctx.restore();
+  }
+  function start() {
+    reset(); K.state = "play";
+    if (K.thumb) {
+      K.thumbTime = 0.02; dist = 4200; coinN = 31; pl.y = GY - 90; pl.vy = -200; pl.ground = false; speed = 460;
+      obs.push({ k: "block", x: 230, w: 34, h: 52 }, { k: "drone", x: 480, w: 40, y: GY - 52, ph: 0 }, { k: "gap", x: 610, w: 130 }, { k: "bar", x: 830, w: 80, top: 0, bot: GY - 44 });
+      for (var i = 0; i < 5; i++) coins.push({ x: 300 + i * 32, y: GY - 120 });
+    }
+  }
+  K.onRestart = start;
+  reset();
+  K.menu({ title: "Neon Runner", body: "Run as far as you can. <kbd>Space</kbd> or <kbd>↑</kbd> to jump, press again in the air to double jump, <kbd>↓</kbd> to slide under bars. Grab coins for bonus points.", onStart: start });
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>

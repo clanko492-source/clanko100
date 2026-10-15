@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Four Up | CLANKO100</title>
+<link rel="stylesheet" href="../kit/kit.css">
+</head>
+<body data-game="four-up" style="--game-bg:#080923">
+<div id="stage"></div>
+<script src="../kit/kit.js"></script>
+<script>
+(function () {
+  "use strict";
+  var K = Kit, C = K.C;
+  var COLS = 7, ROWS = 6, CS = 86, BX = 39, BY = 118, W = COLS * CS + BX * 2, H = BY + ROWS * CS + 36;
+  var ctx = K.canvas(W, H);
+  var fx = new K.Particles();
+  K.pausable = false;
+  var mode = K.store.get("mode", "cpu"), diff = K.store.get("diff", "normal");
+  var board, turn, hover, falling, winLine, over, thinking, t = 0, firstPlayer = 1, scoreYou = 0, scoreThem = 0, msg;
+  var COL1 = C.blue, COL2 = C.pink;
+
+  function reset() {
+    board = []; for (var r = 0; r < ROWS; r++) board.push(new Array(COLS).fill(0));
+    turn = firstPlayer; hover = 3; falling = null; winLine = null; over = false; thinking = false; msg = "";
+    if (mode === "cpu" && turn === 2) cpuMove();
+  }
+  function lowest(b, c) { for (var r = ROWS - 1; r >= 0; r--) if (!b[r][c]) return r; return -1; }
+  function winner(b) {
+    var dirs = [[0, 1], [1, 0], [1, 1], [1, -1]];
+    for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) {
+      var p = b[r][c]; if (!p) continue;
+      for (var d = 0; d < 4; d++) {
+        var line = [[r, c]], ok = true;
+        for (var k = 1; k < 4; k++) { var rr = r + dirs[d][0] * k, cc = c + dirs[d][1] * k; if (rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS || b[rr][cc] !== p) { ok = false; break; } line.push([rr, cc]); }
+        if (ok) return { p: p, line: line };
+      }
+    }
+    return null;
+  }
+  function full(b) { return b[0].every(function (v) { return v; }); }
+
+  /* ---------- AI: minimax with alpha-beta ---------- */
+  var ORDER = [3, 2, 4, 1, 5, 0, 6];
+  function scoreWindow(w, me) {
+    var mine = 0, theirs = 0, empty = 0;
+    for (var i = 0; i < 4; i++) { if (w[i] === me) mine++; else if (w[i] === 0) empty++; else theirs++; }
+    if (mine === 4) return 1000; if (mine === 3 && empty === 1) return 6; if (mine === 2 && empty === 2) return 2;
+    if (theirs === 3 && empty === 1) return -5; return 0;
+  }
+  function evaluate(b, me) {
+    var s = 0;
+    for (var r = 0; r < ROWS; r++) if (b[r][3] === me) s += 3;
+    for (r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) {
+      if (c <= COLS - 4) s += scoreWindow([b[r][c], b[r][c + 1], b[r][c + 2], b[r][c + 3]], me);
+      if (r <= ROWS - 4) s += scoreWindow([b[r][c], b[r + 1][c], b[r + 2][c], b[r + 3][c]], me);
+      if (r <= ROWS - 4 && c <= COLS - 4) s += scoreWindow([b[r][c], b[r + 1][c + 1], b[r + 2][c + 2], b[r + 3][c + 3]], me);
+      if (r >= 3 && c <= COLS - 4) s += scoreWindow([b[r][c], b[r - 1][c + 1], b[r - 2][c + 2], b[r - 3][c + 3]], me);
+    }
+    return s;
+  }
+  function minimax(b, depth, alpha, beta, maxing, me) {
+    var w = winner(b);
+    if (w) return w.p === me ? 100000 + depth : -100000 - depth;
+    if (depth === 0 || full(b)) return evaluate(b, me);
+    var other = me === 1 ? 2 : 1, best = maxing ? -Infinity : Infinity;
+    for (var i = 0; i < 7; i++) {
+      var c = ORDER[i], r = lowest(b, c); if (r < 0) continue;
+      b[r][c] = maxing ? me : other;
+      var v = minimax(b, depth - 1, alpha, beta, !maxing, me);
+      b[r][c] = 0;
+      if (maxing) { if (v > best) best = v; if (best > alpha) alpha = best; } else { if (v < best) best = v; if (best < beta) beta = best; }
+      if (alpha >= beta) break;
+    }
+    return best;
+  }
+  function bestMove(me) {
+    var depth = { easy: 2, normal: 4, hard: 7 }[diff];
+    var moves = ORDER.filter(function (c) { return lowest(board, c) >= 0; });
+    if (diff === "easy" && Math.random() < 0.35) return K.pick(moves);
+    var best = -Infinity, pick = moves[0];
+    moves.forEach(function (c) { var r = lowest(board, c); board[r][c] = me; var v = minimax(board, depth - 1, -Infinity, Infinity, false, me) + Math.random() * 0.5; board[r][c] = 0; if (v > best) { best = v; pick = c; } });
+    return pick;
+  }
+  function cpuMove() {
+    thinking = true;
+    setTimeout(function () { if (over || K.state !== "play") { thinking = false; return; } var c = bestMove(2); thinking = false; drop(c); }, 450);
+  }
+
+  /* ---------- moves ---------- */
+  function drop(c) {
+    if (over || falling || c < 0 || c >= COLS) return;
+    var r = lowest(board, c); if (r < 0) { K.sfx("error"); return; }
+    falling = { c: c, r: r, y: BY - CS * 0.6, vy: 0, p: turn };
+    K.sfx("click");
+  }
+  function land() {
+    var f = falling; board[f.r][f.c] = f.p; falling = null; K.sfx("thud");
+    fx.burst(BX + f.c * CS + CS / 2, BY + f.r * CS + CS - 6, 10, { color: [f.p === 1 ? COL1 : COL2, "#fff"], speed: 120, life: 0.4, angle: -Math.PI / 2, spread: 2.2 });
+    var w = winner(board);
+    if (w) {
+      over = true; winLine = w.line; K.sfx(mode === "cpu" && w.p === 2 ? "lose" : "win");
+      if (w.p === 1) scoreYou++; else scoreThem++;
+      w.line.forEach(function (p) { fx.burst(BX + p[1] * CS + CS / 2, BY + p[0] * CS + CS / 2, 20, { color: [w.p === 1 ? COL1 : COL2, C.yellow, "#fff"], speed: 200, life: 0.8 }); });
+      msg = mode === "cpu" ? (w.p === 1 ? "You win!" : "CPU wins") : (w.p === 1 ? "Blue wins!" : "Pink wins!");
+      if (mode === "cpu" && w.p === 1) K.store.set("wins_" + diff, K.store.get("wins_" + diff, 0) + 1);
+      setTimeout(endScreen, 1300); return;
+    }
+    if (full(board)) { over = true; msg = "It's a draw"; setTimeout(endScreen, 900); return; }
+    turn = turn === 1 ? 2 : 1;
+    if (mode === "cpu" && turn === 2) cpuMove();
+  }
+  function endScreen() {
+    K.state = "over";
+    K.screen({ title: msg, html: '<div class="k-score">' + scoreYou + " : " + scoreThem + '</div><div class="k-score-label">' + (mode === "cpu" ? "You vs CPU" : "Blue vs Pink") + '</div><div style="height:16px"></div>',
+      button: "Play again", onStart: function () { firstPlayer = firstPlayer === 1 ? 2 : 1; reset(); }, secondary: [{ label: "Change mode", onClick: menu }], credit: false });
+  }
+
+  function colAt(x) { return Math.floor((x - BX) / CS); }
+  K.on("move", function (p) { var c = colAt(p.x); if (c >= 0 && c < COLS) hover = c; });
+  K.on("tap", function (p) { if (K.state !== "play" || thinking || (mode === "cpu" && turn === 2)) return; var c = colAt(p.x); if (c >= 0 && c < COLS) { hover = c; drop(c); } });
+  K.on("key", function (code) {
+    if (K.state !== "play" || thinking || (mode === "cpu" && turn === 2)) return;
+    if (code === "ArrowLeft" || code === "KeyA") hover = Math.max(0, hover - 1);
+    if (code === "ArrowRight" || code === "KeyD") hover = Math.min(COLS - 1, hover + 1);
+    if (code === "Space" || code === "Enter" || code === "ArrowDown" || code === "KeyS") drop(hover);
+    if (/^Digit[1-7]$/.test(code)) drop(+code.slice(5) - 1);
+  });
+
+  function update(dt) {
+    t += dt; fx.update(dt);
+    if (falling) {
+      var f = falling, target = BY + f.r * CS;
+      f.vy += 2600 * dt; f.y += f.vy * dt;
+      if (f.y >= target) { f.y = target; if (f.vy > 500) { f.vy *= -0.28; } else land(); }
+    }
+  }
+  function disc(ctx, x, y, p, a) {
+    var col = p === 1 ? COL1 : COL2;
+    ctx.save(); ctx.globalAlpha = a == null ? 1 : a;
+    K.glow(ctx, col, 16); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, CS * 0.39, 0, Math.PI * 2); ctx.fill(); K.noGlow(ctx);
+    ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, CS * 0.27, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.beginPath(); ctx.arc(x - CS * 0.12, y - CS * 0.13, CS * 0.08, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  function draw(ctx) {
+    var g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#120f3a"); g.addColorStop(1, "#080923");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // header
+    var you = mode === "cpu" ? "You" : "Blue", them = mode === "cpu" ? "CPU" : "Pink";
+    disc(ctx, 34, 36, 1, 1); K.text(ctx, you + "  " + scoreYou, 62, 36, { size: 20, color: "#fff" });
+    disc(ctx, W - 160, 36, 2, 1); K.text(ctx, them + "  " + scoreThem, W - 132, 36, { size: 20, color: "#fff" });
+    var status = over ? msg : thinking ? "CPU is thinking..." : (mode === "cpu" ? (turn === 1 ? "Your turn" : "CPU's turn") : (turn === 1 ? "Blue's turn" : "Pink's turn"));
+    K.text(ctx, status, W / 2, 36, { size: 16, color: turn === 1 ? COL1 : COL2, align: "center", family: "body", weight: 600 });
+    // hover disc
+    if (!over && !falling && K.state === "play" && !(mode === "cpu" && turn === 2)) disc(ctx, BX + hover * CS + CS / 2, BY - CS * 0.45, turn, 0.85);
+    // falling disc behind board
+    if (falling) disc(ctx, BX + falling.c * CS + CS / 2, falling.y + CS / 2, falling.p);
+    // pieces
+    for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) if (board[r][c]) disc(ctx, BX + c * CS + CS / 2, BY + r * CS + CS / 2, board[r][c]);
+    // board frame with holes
+    ctx.save();
+    ctx.beginPath(); K.roundRect(ctx, BX - 12, BY - 12, COLS * CS + 24, ROWS * CS + 24, 18);
+    for (r = 0; r < ROWS; r++) for (c = 0; c < COLS; c++) { var cx = BX + c * CS + CS / 2, cy = BY + r * CS + CS / 2; ctx.moveTo(cx + CS * 0.41, cy); ctx.arc(cx, cy, CS * 0.41, 0, Math.PI * 2, true); }
+    var bg = ctx.createLinearGradient(0, BY, 0, BY + ROWS * CS); bg.addColorStop(0, "rgba(46,40,140,.92)"); bg.addColorStop(1, "rgba(30,24,100,.95)");
+    ctx.fillStyle = bg; ctx.fill("evenodd");
+    ctx.strokeStyle = "rgba(160,150,255,.6)"; ctx.lineWidth = 2; K.glow(ctx, C.purple, 16); ctx.stroke(); K.noGlow(ctx);
+    ctx.restore();
+    // highlight column
+    if (!over && K.state === "play" && !(mode === "cpu" && turn === 2)) { ctx.fillStyle = "rgba(255,255,255,.04)"; ctx.fillRect(BX + hover * CS, BY, CS, ROWS * CS); }
+    if (winLine) {
+      var a = winLine[0], b = winLine[3];
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 8; ctx.lineCap = "round"; K.glow(ctx, C.yellow, 20); ctx.globalAlpha = 0.6 + Math.sin(t * 8) * 0.3;
+      ctx.beginPath(); ctx.moveTo(BX + a[1] * CS + CS / 2, BY + a[0] * CS + CS / 2); ctx.lineTo(BX + b[1] * CS + CS / 2, BY + b[0] * CS + CS / 2); ctx.stroke();
+      ctx.globalAlpha = 1; K.noGlow(ctx);
+    }
+    fx.draw(ctx);
+  }
+
+  function menu() {
+    K.menu({
+      title: "Four Up",
+      html: '<div class="k-row" role="group" aria-label="Players"><button type="button" class="k-chip" data-mode="cpu">vs CPU</button><button type="button" class="k-chip" data-mode="pvp">2 players</button></div>' +
+        '<div class="k-row" role="group" aria-label="Difficulty" data-diffs><button type="button" class="k-chip" data-diff="easy">Easy</button><button type="button" class="k-chip" data-diff="normal">Normal</button><button type="button" class="k-chip" data-diff="hard">Hard</button></div>',
+      body: "Drop discs and get four in a row across, down or diagonally. Click or tap a column, or use <kbd>←</kbd> <kbd>→</kbd> and <kbd>Space</kbd>.",
+      onStart: function () { scoreYou = scoreThem = 0; firstPlayer = 1; reset(); if (K.thumb) thumb(); },
+      onShow: function (el) {
+        function sync() {
+          el.querySelectorAll("[data-mode]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.mode === mode)); });
+          el.querySelectorAll("[data-diff]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.diff === diff)); });
+          el.querySelector("[data-diffs]").style.display = mode === "cpu" ? "" : "none";
+        }
+        el.querySelectorAll("[data-mode]").forEach(function (b) { b.addEventListener("click", function () { mode = b.dataset.mode; K.store.set("mode", mode); K.sfx("click"); sync(); }); });
+        el.querySelectorAll("[data-diff]").forEach(function (b) { b.addEventListener("click", function () { diff = b.dataset.diff; K.store.set("diff", diff); K.sfx("click"); sync(); }); });
+        sync();
+      }
+    });
+  }
+  function thumb() {
+    var seq = [3, 3, 2, 4, 4, 2, 5, 1, 2, 5, 6];
+    seq.forEach(function (c, i) { board[lowest(board, c)][c] = i % 2 ? 2 : 1; });
+    hover = 1; scoreYou = 2; scoreThem = 1; turn = 1;
+  }
+  reset();
+  menu();
+  K.loop(update, draw);
+})();
+</script>
+</body>
+</html>
