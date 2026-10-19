@@ -87,6 +87,36 @@ export class World {
     } else if (this.scCar) { this.scCar.root.visible = false; if (!S.sc) { this.g.scene.remove(this.scCar.root); this.scCar.dispose(); this.scCar = null; } }
   }
 
+  /** pit crews appear when a car is being serviced and work on the wheels */
+  updateCrews(dt) {
+    const sc = this.trackView.scenery;
+    if (!sc.crews) return;
+    const S = this.session;
+    for (const c of sc.crews) c.active = false;
+    for (const e of S.entities) {
+      const p = e.pitPilot;
+      if (!p || e.removed) continue;
+      const slot = p.e && p.e.team && p.e.team.slot != null ? p.e.team.slot : e.idx % 10;
+      const crew = sc.crews[slot];
+      if (!crew) continue;
+      const near = Math.abs(this.track.sDelta(e.car.q.s, p.boxS)) < 40;
+      crew.active = near;
+      crew.working = p.state === "service";
+    }
+    this._crewT = (this._crewT || 0) + dt;
+    for (const c of sc.crews) {
+      c.group.visible = !!c.active;
+      if (!c.active) continue;
+      const t = this._crewT;
+      c.members.forEach((m, k) => {
+        const arm = m.userData.arm;
+        if (!arm) return;
+        arm.rotation.x = c.working ? Math.sin(t * 14 + k) * 0.9 - 0.6 : -0.1;
+        m.position.y = c.working ? Math.max(0, Math.sin(t * 7 + k) * 0.05) : 0;
+      });
+    }
+  }
+
   /** start lights and marshal panels follow the session */
   updateSignals(dt) {
     const S = this.session, sc = this.trackView.scenery;

@@ -17,6 +17,7 @@ import { Radio, PRIORITY } from "./radio.js";
 import { clamp, fmtTime, rng } from "../core/math.js";
 import { NetRace, NET } from "../net/race-net.js";
 import { ReplayRecorder } from "./replay.js";
+import { RainScreen } from "../render/rain-screen.js";
 
 export class RaceController {
   /**
@@ -106,6 +107,8 @@ export class RaceController {
     this._applyAtmosphere(true);
     // HUD and radio
     this.hud = new HUD(this.app.overlay, session, pc, S.hud);
+    this.rainScreen = new RainScreen(this.app.overlay);
+    this.rainScreen.resize(this.g.width, this.g.height);
     this.radio = new Radio({ hud: this.hud, settings: S.audio });
     // audio
     if (this.app.audio) this.app.audio.attachRace(this);
@@ -224,6 +227,7 @@ export class RaceController {
     this._delta();
     W.sync(dt, alpha, e);
     W.updateSignals(dt);
+    W.updateCrews(dt);
     W.updateWeather(dt);
     this._ghostPlay();
     // camera
@@ -245,6 +249,12 @@ export class RaceController {
     const rect = !inside && this.settings.graphics.hudMirror !== false && this.settings.hud.mirror !== false && this.rig.mode !== "tv" && this.rig.mode !== "heli" ? this.hud.mirrorRect() : null;
     if (rect) W.mirrors.renderCentre(view, rect);
     this.hud.showMirrorFrame(!!rect);
+    // rain on the camera: heavy in the cockpit, a spatter outside
+    const rain = S.weather.rain;
+    if (this.rainScreen) {
+      if (this.rainScreen.w !== Math.round(this.g.width * 0.5 * Math.min(1.5, window.devicePixelRatio || 1))) this.rainScreen.resize(this.g.width, this.g.height);
+      this.rainScreen.update(dt, rain * (inside ? 1 : 0.45) * (this.rig.mode === "tv" || this.rig.mode === "heli" ? 0 : 1), Math.abs(e.car.u), inside);
+    }
     this.hud.root.classList.toggle("inside", inside);
     this.hud.update(dt, { fps: this.g.stats.fps, res: Math.round(this.g.scale * 100), calls: this.g.stats.calls, showFps: this.settings.graphics.showFps || this.settings.debug,
       net: this.net ? { connected: this.net.connected, ping: this.net.ping, lost: this.net.stats.lost } : null });
@@ -274,6 +284,7 @@ export class RaceController {
     W.update(dt, this.g.camera, focus.car);
     this.g.render(dt);
     this.hud.e = focus;
+    this.hud.showMirrorFrame(false);
     this.hud.update(dt, { fps: this.g.stats.fps, res: Math.round(this.g.scale * 100), calls: this.g.stats.calls, showFps: this.settings.graphics.showFps });
   }
 
@@ -371,8 +382,13 @@ export class RaceController {
   }
 
   pause(on) { this.paused = on; this.session.paused = on; if (on) this.radio.stop(); }
-  restart() { this.app.startRace(this.cfg); }
+  restart() {
+    const cfg = this.cfg;
+    if (cfg.net) cfg.net.link = this.net ? this.net.link : cfg.net.link; // keep the open connection
+    this.app.startRace(cfg);
+  }
   dispose() {
+    this.rainScreen && this.rainScreen.dispose();
     this.net && this.net.dispose();
     this.radio && this.radio.stop();
     this.hud && this.hud.dispose();

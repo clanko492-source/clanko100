@@ -113,22 +113,28 @@ export class CameraRig {
       case "tv": {
         if (!tvSpots || !tvSpots.length) { this.setMode("chase"); return this.update(dt, car, view, track, tvSpots, groundY); }
         // the nearest camera ahead of the car on the lap, switching as it passes
-        const s = car.q.s;
+        // the camera that has the car nicely in shot: close by, and just past it or just ahead
         let best = -1, bd = 1e9;
         for (let k = 0; k < tvSpots.length; k++) {
-          const d = track.sDelta(s, tvSpots[k].s);
-          const score = d > -60 ? d + 60 : 1e9;
+          const sp = tvSpots[k];
+          const dist = Math.hypot(sp.x - car.x, sp.z - car.z);
+          if (dist > 300 || dist < 18) continue;
+          const along = track.sDelta(sp.s, car.q.s); // + = the car is past this camera
+          const score = dist + (along > 0 ? along * 0.25 : -along * 1.1);
           if (score < bd) { bd = score; best = k; }
+        }
+        if (best < 0) { // nothing close: fall back to the nearest camera of all
+          for (let k = 0; k < tvSpots.length; k++) { const d = Math.hypot(tvSpots[k].x - car.x, tvSpots[k].z - car.z); if (d < bd) { bd = d; best = k; } }
         }
         if (best !== this.tvIndex) { this.tvIndex = best; this.init = false; }
         const sp = tvSpots[best];
         cam.position.set(sp.x, sp.y, sp.z);
-        const target = _v.set(car.x, car.y + 0.5, car.z);
+        const target = _v.set(car.x, car.y + 0.9, car.z);
         if (!this.init) this.look.copy(target);
         this.look.lerp(target, Math.min(1, dt * 10));
         cam.up.set(0, 1, 0); cam.lookAt(this.look);
         const dist = cam.position.distanceTo(target);
-        fov = clamp(2 * Math.atan(7 / dist) * 180 / Math.PI, 4, 55);
+        fov = clamp(2 * Math.atan(9 / dist) * 180 / Math.PI, 11, 52);
         break;
       }
       case "heli": {

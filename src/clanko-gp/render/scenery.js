@@ -114,6 +114,40 @@ export function buildScenery(view) {
     const fu = fenceG.attributes.uv; for (let i = 0; i < fu.count; i++) fu.setXY(i, fu.getX(i) * wallL / 4, fu.getY(i) * 0.8);
     fenceG.applyMatrix4(frameAt(tr, wallMid, sg * (pit.wall + 0.05)));
     root.add(new THREE.Mesh(fenceG, view.mat.fence));
+    // pit crews: one set per box, standing by until a car arrives
+    {
+      const crew = [];
+      const crewMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+      out.crews = [];
+      for (let slot = 0; slot < 10; slot++) {
+        const sBox = tr.boxS(slot);
+        const col = teams[slot] ? teams[slot].color : "#888";
+        const grp = new THREE.Group();
+        const members = [];
+        // three on each side of the car plus one with the jack
+        const spots = [[1.6, 1.4], [1.6, -1.4], [-1.6, 1.4], [-1.6, -1.4], [2.9, 0], [0, 2.0]];
+        for (const [dx, dz] of spots) {
+          const m = new THREE.Group();
+          const body = tint(boxAt(0.34, 0.72, 0.26, 0, 0.42), col);
+          const legs = tint(boxAt(0.3, 0.46, 0.24, 0, 0), 0x1b1d22);
+          const head = tint(place(new THREE.SphereGeometry(0.13, 8, 6), [0, 1.3, 0]), 0xe8c9a0);
+          const helmet = tint(place(new THREE.SphereGeometry(0.15, 8, 6), [0, 1.33, 0]), col);
+          const arm = tint(boxAt(0.1, 0.5, 0.1, 0, 0.55, 0.2), col);
+          const mesh = new THREE.Mesh(merge([body, legs, head, helmet], { colors: true }), crewMat);
+          const armMesh = new THREE.Mesh(merge([arm], { colors: true }), crewMat);
+          armMesh.position.set(0, 0.25, 0.1);
+          m.add(mesh, armMesh);
+          m.position.set(dx, 0, dz);
+          m.userData.arm = armMesh;
+          grp.add(m); members.push(m);
+        }
+        grp.applyMatrix4(frameAt(tr, sBox, sg * pit.work));
+        grp.visible = false;
+        grp.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+        root.add(grp);
+        out.crews.push({ group: grp, members, slot, busy: 0 });
+      }
+    }
     // sign on the roof
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(36, 4.5), new THREE.MeshStandardMaterial({ map: textTexture("CLANKO GP", { bg: "#0d0d10", fg: "#ffd23a" }), emissive: 0xffffff, emissiveMap: null, emissiveIntensity: night ? 0.6 : 0, roughness: 0.5 }));
     sign.material.emissiveMap = sign.material.map;

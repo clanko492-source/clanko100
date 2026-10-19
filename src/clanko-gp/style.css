@@ -329,3 +329,4 @@ input[type="color"] { width: 54px; height: 30px; padding: 2px; background: #1214
   .menu { grid-template-columns: 1fr 1fr 1fr; max-width: 980px; }
   .menu-item small { display: none; }
 }
+.rain-screen { position: absolute; inset: 0; width: 100%; height: 100%; display: none; pointer-events: none; }

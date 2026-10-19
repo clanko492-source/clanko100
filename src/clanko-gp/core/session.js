@@ -566,7 +566,11 @@ export class Session {
   }
 
   _finish(e, t) {
-    e.finished = true; e.finishTime = t - (this.greenAt || 0);
+    e.finished = true;
+    // a car that is laps down is classified where it is, not on a time
+    const full = !this.isRace || e.lap >= this.laps;
+    e.finishTime = full ? t - (this.greenAt || 0) : null;
+    e.notClassified = this.isRace && e.lap < this.laps * 0.5;
     this.finishOrder.push(e);
     this.emit("finish", { e, position: this.finishOrder.length });
     // finished cars cruise back
@@ -584,6 +588,9 @@ export class Session {
     const humanMoving = running.some((e) => (e.isPlayer || e.remote) && e.car.speed > 3);
     const limit = humanMoving ? Math.max(150, lapEst * 1.5) : 25;
     if (!running.length || (!humanRunning && waited > lapEst + 15) || waited > limit) {
+      this._positions();
+      // anyone still circulating takes the flag where they are, in track order
+      for (const e of (this.order || []).slice()) if (!e.removed && !e.retired && !e.finished) this._finish(e, this.time);
       this._positions();
       this.phase = "done";
       this.emit("sessionEnd", { results: this.results() });
@@ -858,7 +865,7 @@ export class Session {
       return {
         id: e.id, name: e.name, short: e.short, number: e.number, team: e.team ? e.team.name : "", teamId: e.team ? e.team.id : null, color: e.team ? e.team.color : "#888",
         position: k + 1, laps: e.lap, time: timeWithPen, bestLap: e.bestLap, gap: e.gap, lapsDown: e.lapsDown,
-        penalty: e.penalty, stops: e.pit.stops, status: e.retired ? "DNF" : e.finished ? "Finished" : "Running", dnf: e.dnf,
+        penalty: e.penalty, stops: e.pit.stops, status: e.retired ? "DNF" : e.notClassified ? "NC" : e.finished ? "Finished" : "Running", dnf: e.dnf,
         points: this.isRace && !e.retired && k < POINTS.length ? POINTS[k] : 0, isPlayer: e.isPlayer, remote: e.remote,
         fastest: this.fastestLap && this.fastestLap.e === e, topSpeed: e.stats.topSpeed, overtakes: e.stats.overtakes,
         compounds: [...e.pit.compoundsUsed],
@@ -876,7 +883,7 @@ export class Session {
         const wetUsed = r.compounds.some((c) => !COMPOUNDS[c].dry);
         if (!wetUsed && new Set(dry).size < 2 && this.laps >= 6) { r.dq = true; r.status = "DSQ"; }
       }
-      r.points = this.isRace && !r.dq && r.status !== "DNF" && k < POINTS.length ? POINTS[k] : 0;
+      r.points = this.isRace && !r.dq && r.status !== "DNF" && r.status !== "NC" && k < POINTS.length ? POINTS[k] : 0;
       if (r.fastest && r.points > 0 && k < 10) r.points += 1;
       return r;
     });

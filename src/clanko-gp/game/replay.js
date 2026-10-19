@@ -100,12 +100,29 @@ export class ReplayUI {
     if (!rec || rec.frames.length < 10) { this.app.ui.toast("Nothing recorded yet."); return; }
     this.start(rc, { frames: rec.frames, meta: rec.meta, hz: HZ }, rc.track.def.name);
   }
-  play(index) {
+  /** load a saved replay: build the circuit and the right number of cars, then play it back */
+  async play(index) {
     const r = (this.app.store.data.replays || [])[index];
-    if (!r) return;
-    this.app.ui.toast("Saved replays open in the race you are in; start a race on " + r.trackId + " to watch it.");
+    if (!r || !r.data || !r.data.frames.length) { this.app.ui.toast("That replay is empty."); return; }
+    const meta = r.data.meta || [];
+    this.app.ui.loading(0.1, "Loading the replay");
+    const rc = await this.app.startRace({
+      trackId: r.trackId, type: "practice", laps: 99, timeLimit: 0, aiCount: Math.max(0, meta.length - 1),
+      start: "pit", weather: "dry", damage: "off", replay: true,
+      player: { name: meta[0] ? meta[0].name : "Driver", short: meta[0] ? meta[0].short : "DRV", number: meta[0] ? meta[0].number : 1, livery: meta[0] ? meta[0].livery : null },
+    });
+    if (!rc) return;
+    // dress the cars in the liveries the replay was recorded with
+    rc.session.entities.forEach((e, i) => { if (meta[i]) { e.name = meta[i].name; e.short = meta[i].short; e.number = meta[i].number; } });
+    const frames = r.data.frames.map((f) => Float32Array.from(f.map((v) => (v == null ? 0 : v))));
+    this.start(rc, { frames, meta, hz: r.data.hz || HZ }, r.title);
   }
   start(rc, data, title) {
+    // the recording drives the cars, so clear anything the live session was doing
+    const S = rc.session;
+    S.phase = "racing"; S.paused = true; S.flag = "green"; S.sectorFlags = ["green", "green", "green"]; S.sc = null; S.vsc = null;
+    for (const e of S.entities) { e.pitPilot = null; e.pit.inLane = false; e.pit.requested = false; e.held = false; e.car.limiter = false; e.blueFlag = false; e.removed = false; e.ai = null; }
+    rc.hud.prompt("");
     const player = new ReplayPlayer(this.app, rc.world, data, { track: rc.track, session: rc.session, title });
     rc.replay = player;
     rc.paused = true;

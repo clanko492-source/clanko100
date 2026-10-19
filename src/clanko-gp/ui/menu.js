@@ -409,6 +409,8 @@ export class UI {
         me ? h("p", { class: "res-me" + (podium ? " podium" : "") }, me.status === "DNF" ? "Did not finish" : `You finished P${me.position}` + (S.isRace ? ` · ${me.points} points` : "") + (me.bestLap ? ` · best lap ${fmtTime(me.bestLap)}` : "")) : null,
         h("table", { class: "table results" }, h("thead", {}, h("tr", {}, ["Pos", "Driver", "Team", S.isRace ? "Time" : "Best", "Best lap", "Stops", "Pen.", S.isRace ? "Pts" : ""].map((t) => h("th", {}, t)))), h("tbody", {}, rows)),
         h("div", { class: "row" },
+          rc.net && rc.net.isHost ? h("button", { class: "btn primary", onclick: () => { rc.net.sendRestart(rc.cfg); rc.restart(); } }, "Rematch") : null,
+          rc.net && !rc.net.isHost ? h("span", { class: "note" }, "The host can start a rematch.") : null,
           this.app.replays ? h("button", { class: "btn", onclick: () => this.app.replays.watch(rc) }, "Watch replay") : null,
           this.app.replays ? h("button", { class: "btn", onclick: () => { this.app.replays.save(rc); this.toast("Replay saved"); } }, "Save replay") : null,
           h("button", { class: "btn", onclick: () => rc.restart() }, "Race again"),
