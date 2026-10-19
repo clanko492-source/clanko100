@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><title>track test</title>
+<style>html,body{margin:0;background:#000;overflow:hidden;width:100%;height:100%}#v{position:absolute;inset:0}#info{position:absolute;left:8px;top:8px;color:#fff;font:12px monospace;background:rgba(0,0,0,.5);padding:4px}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three-build/three.module.js","three/addons/":"../vendor/three-addons/"}}</script>
+</head><body><div id="v"></div><div id="info"></div>
+<script type="module">
+import * as THREE from "three";
+import { Graphics } from "../render/graphics.js";
+import { TrackView } from "../render/track-view.js";
+import { CarView } from "../render/car-model.js";
+import { Track } from "../core/track.js";
+import { TRACK_BY_ID } from "../core/tracks-data.js";
+import { computeRacingLine } from "../core/racingline.js";
+const q = new URLSearchParams(location.search);
+const id = q.get("t") || "fiorella", qual = q.get("q") || "medium";
+const g = new Graphics(document.getElementById("v"), { quality: qual });
+const tr = new Track(TRACK_BY_ID[id]);
+const line = computeRacingLine(tr);
+const t0 = performance.now();
+const teams = ["#d01f2f","#1f5fd0","#f2a900","#0f9d58","#7b2ff7","#ff6a00","#00a3a1","#e91e63","#607d8b","#222"].map(c => ({ color: c }));
+const view = new TrackView(tr, { quality: g.preset, line, teams });
+g.scene.add(view.group);
+const def = TRACK_BY_ID[id];
+const hour = q.get("hour") != null ? +q.get("hour") : def.time;
+g.setAtmosphere({ hour, clouds: q.get("clouds") != null ? +q.get("clouds") : (def.clouds || 0.3), rain: +(q.get("rain") || 0), floodlit: def.night, fogBase: view.theme.fogDay });
+g.updateEnvironment(true);
+if (q.get("env") != null) g.scene.environmentIntensity = +q.get("env");
+if (q.get("bloom") != null && g.bloom) g.bloom.strength = +q.get("bloom");
+if (q.get("exp") != null) g.renderer.toneMappingExposure = +q.get("exp");
+if (q.get("fog") != null) g.fog.density = +q.get("fog");
+if (q.get("hemi") != null) g.hemi.intensity = +q.get("hemi");
+if (q.get("wet")) view.setWater((i, d) => +q.get("wet"));
+// a few cars on the grid
+for (let k = 0; k < +(q.get("cars") || 6); k++) {
+  const cv = new CarView({ quality: g.preset.car, livery: { base: teams[k % 10].color, number: k + 1 } });
+  const gs = tr.grid[k]; const w = tr.toWorld(gs.s, gs.d);
+  cv.update({ x: w.x, y: w.y, z: w.z, h: w.heading, bodyPitch: 0, bodyRoll: 0, steer: 0, wheels: [0,1,2,3].map(() => ({ rot: 0, Fz: 3000 })), brakeTemp: [300,300,300,300], rpm: 5000, cls: { shiftRpm: 11850 } }, 0.1, {});
+  g.scene.add(cv.root);
+}
+const s = +(q.get("s") || -60), d = +(q.get("d") || 0), h = +(q.get("h") || 4), ahead = +(q.get("ahead") || 60), yaw = +(q.get("yaw") || 0);
+const p = tr.toWorld(s, d), a = tr.toWorld(s + ahead, d * 0.3);
+g.camera.position.set(p.x, p.y + h, p.z);
+if (q.get("top")) { g.camera.position.set((tr.bounds.minx+tr.bounds.maxx)/2, +q.get("top"), (tr.bounds.minz+tr.bounds.maxz)/2 + 1); g.camera.lookAt((tr.bounds.minx+tr.bounds.maxx)/2, 0, (tr.bounds.minz+tr.bounds.maxz)/2); }
+else { g.camera.lookAt(a.x, a.y + h * 0.4, a.z); g.camera.rotateY(yaw); }
+g.camera.fov = +(q.get("fov") || 60); g.camera.updateProjectionMatrix();
+g.followShadows(new THREE.Vector3(p.x, p.y, p.z));
+g.render(0.016);
+document.getElementById("info").textContent = `${id} build ${Math.round(performance.now() - t0)} ms  trees ${view.scenery.treeCount}  calls ${g.stats.calls} tris ${g.stats.tris}`;
+window.__ready = true;
+</script></body></html>

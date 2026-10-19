@@ -81,6 +81,38 @@
   ],
   "games": [
     {
+      "slug": "clanko-gp",
+      "title": "CLANKO GP",
+      "cats": [
+        "racing",
+        "action",
+        "multiplayer",
+        "sports"
+      ],
+      "aspect": "16/9",
+      "summary": "A full open-wheel racing simulator: ten original circuits, real physics, pit stops, weather, career mode and online 1v1.",
+      "about": "CLANKO GP is a proper racing simulator that runs in the browser. Ten original circuits, from a parkland temple of speed to night street races, each with kerbs, run-off, a working pit lane and sector timing. The cars are built on a real physics model: tyre temperature and wear, downforce, slipstream, weight transfer, lock-ups, wheelspin and damage that changes how the car drives. Race against twenty computer drivers with their own personalities, run a full Grand Prix weekend with practice and qualifying, build a career from the junior series to your own team, chase ghosts in time trial, or race a friend one on one through a private room code. Everything is original: the teams, the drivers, the circuits and the liveries.",
+      "controls": [
+        "W / S accelerate and brake, A / D steer",
+        "Q / E change gear when automatic gears are off",
+        "Space DRS, Left Shift ERS boost, L pit limiter",
+        "C camera, V look back, R back to the track, Esc pause",
+        "Gamepads and steering wheels are supported in Controls"
+      ],
+      "tags": [
+        "racing",
+        "formula",
+        "simulator",
+        "3d",
+        "multiplayer",
+        "career",
+        "time trial"
+      ],
+      "mobile": false,
+      "featured": 1,
+      "trending": 1
+    },
+    {
       "slug": "neon-snake",
       "title": "Neon Snake",
       "cats": [

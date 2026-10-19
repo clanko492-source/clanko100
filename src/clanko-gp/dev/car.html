@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><title>car test</title>
+<style>html,body{margin:0;background:#222;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three-build/three.module.js","three/addons/":"../vendor/three-addons/"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { CarView } from "../render/car-model.js";
+const q = new URLSearchParams(location.search);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x30343a);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.position.set(4, 8, 3); sun.castShadow = true; scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x55585e, roughness: 0.8 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const view = new CarView({ quality: +(q.get("q") || 2), player: true });
+scene.add(view.root);
+const lod = +(q.get("lod") || 0);
+view.lod.levels.forEach((l, i) => (l.object.visible = i === lod)); view.lod.autoUpdate = false;
+const cam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 200);
+const a = +(q.get("a") || 0.8), d = +(q.get("d") || 9), h = +(q.get("h") || 2.2);
+cam.position.set(Math.cos(a) * d, h, Math.sin(a) * d); cam.lookAt(+(q.get("tx") || 0), +(q.get("ty") || 0.4), +(q.get("tz") || 0));
+const fake = { x: 0, y: 0, z: 0, h: 0, bodyPitch: 0, bodyRoll: 0, steer: +(q.get("steer") || 0.2), drsOpen: q.get("drs") === "1", limiter: false, rpm: 11000, gear: 6, u: 60, cls: { shiftRpm: 11850, ersStore: 4e6 }, ers: 3e6, setup: { brakeBias: 57 },
+  wheels: [0, 1, 2, 3].map(() => ({ rot: 0, Fz: 3000, detached: false })), brakeTemp: [700, 700, 500, 500], damage: { fwL: 0, fwR: 0, rw: 0 } };
+view.update(fake, 0.5, { player: true });
+renderer.render(scene, cam);
+window.__ready = true;
+</script></body></html>
